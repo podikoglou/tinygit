@@ -117,7 +117,7 @@ impl Decode for IndexEntry {
 pub struct Mode {
     pub object_type: ObjectType,
 
-    /// 0755 or 0644
+    /// 0o0755 or 0o0644
     pub permission: u16,
 }
 
@@ -131,6 +131,11 @@ impl Decode for Mode {
         let permission: u16 = (value & 0x1FF)
             .try_into()
             .map_err(|err| ErrMode::Cut(ContextError::from_external_error(input, err)))?;
+
+        // TODO: encode the two constraints below in a `Mode::try_new` instead
+        if !(permission == 0o0755 || permission == 0o0644) {
+            return Err(ErrMode::Cut(ContextError::new()));
+        }
 
         // this could be considered too strict
         if let ObjectType::GitLink | ObjectType::SymbolicLink = object_type
