@@ -133,7 +133,9 @@ impl Decode for Mode {
             .map_err(|err| ErrMode::Cut(ContextError::from_external_error(input, err)))?;
 
         // this could be considered too strict
-        if permission != 0 {
+        if let ObjectType::GitLink | ObjectType::SymbolicLink = object_type
+            && permission != 0
+        {
             return Err(ErrMode::Cut(ContextError::new()));
         }
 
