@@ -50,3 +50,42 @@ impl Encode for IndexHeader {
         Ok(())
     }
 }
+
+#[derive(Debug)]
+pub struct IndexEntry {
+    /// ctime seconds, the last time a file's metadata changed
+    pub ctime_seconds: u32,
+
+    /// ctime nanosecond fractions
+    pub ctime_ns_fractions: u32,
+
+    /// mtime seconds, the last time a file's data changed
+    pub mtime_seconds: u32,
+
+    /// mtime nanosecond fractions
+    pub mtime_ns_fractions: u32,
+
+    /// dev(ice?)
+    pub dev: u32,
+
+    /// inode
+    pub ino: u32,
+
+    pub object_type: ObjectType,
+
+    /// 0755 or 0644
+    pub permission: u8,
+
+    pub uid: u32,
+
+    pub gid: u32,
+
+    pub file_size: u32,
+}
+
+#[derive(Debug)]
+pub enum ObjectType {
+    Regular,
+    SymbolicLink,
+    GitLink,
+}
