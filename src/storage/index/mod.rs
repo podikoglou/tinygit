@@ -4,6 +4,7 @@ use winnow::{
     Parser,
     binary::be_u32,
     combinator::{alt, seq},
+    error::{ContextError, ErrMode, FromExternalError},
     prelude::ModalResult,
 };
 
@@ -76,16 +77,77 @@ pub struct IndexEntry {
     /// inode
     pub ino: u32,
 
-    pub object_type: ObjectType,
-
-    /// 0755 or 0644
-    pub permission: u8,
+    pub mode: Mode,
 
     pub uid: u32,
 
     pub gid: u32,
 
     pub file_size: u32,
+}
+
+impl Decode for IndexEntry {
+    fn parse(input: &mut Stream<'_>) -> ModalResult<Self> {
+        seq! {Self {
+            ctime_seconds: be_u32,
+            ctime_ns_fractions: be_u32,
+
+            mtime_seconds: be_u32,
+            mtime_ns_fractions: be_u32,
+
+            dev: be_u32,
+            ino: be_u32,
+
+            mode: Mode::parse,
+
+            uid: be_u32,
+            gid: be_u32,
+            file_size: be_u32,
+
+        }}
+        .parse_next(input)
+    }
+}
+
+/// +------------+------------+------------+------------+
+/// |   unused   |  obj type  |   unused   | permission |
+/// | 31 .... 16 | 15  ... 12 | 11  ...  9 | 8  ...   0 |
+/// +------------+------------+------------+------------+
+#[derive(Debug)]
+pub struct Mode {
+    pub object_type: ObjectType,
+
+    /// 0755 or 0644
+    pub permission: u8,
+}
+
+impl Decode for Mode {
+    fn parse(input: &mut Stream<'_>) -> ModalResult<Self> {
+        let value = be_u32.parse_next(input)?;
+
+        let object_type = ObjectType::try_from(((value >> 12) & 0xFF) as u8)
+            .map_err(|err| ErrMode::Cut(ContextError::from_external_error(input, err)))?;
+
+        let permission: u8 = (value & 0x1FF)
+            .try_into()
+            .map_err(|err| ErrMode::Cut(ContextError::from_external_error(input, err)))?;
+
+        // this could be considered too strict
+        if permission != 0 {
+            return Err(ErrMode::Cut(ContextError::new()));
+        }
+
+        Ok(Self {
+            object_type,
+            permission,
+        })
+    }
+}
+
+impl Encode for Mode {
+    fn encode<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
+        todo!()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -95,25 +157,25 @@ pub enum ObjectType {
     GitLink,
 }
 
-impl Decode for ObjectType {
-    fn parse(input: &mut Stream<'_>) -> ModalResult<Self> {
-        alt((
-            0b1000.value(Self::Regular),
-            0b1010.value(Self::SymbolicLink),
-            0b1110.value(Self::GitLink),
-        ))
-        .parse_next(input)
+impl From<ObjectType> for u8 {
+    fn from(val: ObjectType) -> Self {
+        match val {
+            ObjectType::Regular => 0b1000,
+            ObjectType::SymbolicLink => 0b1010,
+            ObjectType::GitLink => 0b1110,
+        }
     }
 }
 
-impl Encode for ObjectType {
-    fn encode<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
-        match self {
-            ObjectType::Regular => writer.write_all(&[0b1000]),
-            ObjectType::SymbolicLink => writer.write_all(&[0b1010]),
-            ObjectType::GitLink => writer.write_all(&[0b1110]),
-        }?;
+impl TryFrom<u8> for ObjectType {
+    type Error = TinygitError;
 
-        Ok(())
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0b1000 => Ok(ObjectType::Regular),
+            0b1010 => Ok(ObjectType::SymbolicLink),
+            0b1110 => Ok(ObjectType::GitLink),
+            other => Err(TinygitError::InvalidObjectType(other)),
+        }
     }
 }

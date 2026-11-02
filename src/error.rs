@@ -127,6 +127,9 @@ pub enum TinygitError {
     #[error("Hex decoding error: {0}")]
     HexDecodingError(#[from] FromHexError),
 
+    #[error("Invalid object type: {0}")]
+    InvalidObjectType(u8),
+
     #[error("Invalid instruction")]
     InvalidInstruction,
 }
