@@ -353,3 +353,16 @@ fn mode_properties() {
         }
     });
 }
+
+#[test]
+fn mode_roundtrip() {
+    check!().for_each(|input: &[u8]| {
+        if let Ok(parsed) = Mode::decode_bytes(input) {
+            let mut buf = Vec::default();
+
+            parsed.encode(&mut buf).expect("should be encodable");
+
+            assert_eq!(buf, input);
+        }
+    });
+}
