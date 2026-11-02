@@ -1,6 +1,11 @@
 use std::{io::prelude::Write, path::PathBuf};
 
-use winnow::{Parser, binary::be_u32, combinator::seq, prelude::ModalResult};
+use winnow::{
+    Parser,
+    binary::be_u32,
+    combinator::{alt, seq},
+    prelude::ModalResult,
+};
 
 use crate::{
     TinygitError,
@@ -83,9 +88,32 @@ pub struct IndexEntry {
     pub file_size: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ObjectType {
     Regular,
     SymbolicLink,
     GitLink,
+}
+
+impl Decode for ObjectType {
+    fn parse(input: &mut Stream<'_>) -> ModalResult<Self> {
+        alt((
+            0b1000.value(Self::Regular),
+            0b1010.value(Self::SymbolicLink),
+            0b1110.value(Self::GitLink),
+        ))
+        .parse_next(input)
+    }
+}
+
+impl Encode for ObjectType {
+    fn encode<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
+        match self {
+            ObjectType::Regular => writer.write_all(&[0b1000]),
+            ObjectType::SymbolicLink => writer.write_all(&[0b1010]),
+            ObjectType::GitLink => writer.write_all(&[0b1110]),
+        }?;
+
+        Ok(())
+    }
 }
