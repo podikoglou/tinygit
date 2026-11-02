@@ -148,7 +148,7 @@ impl Encode for Mode {
     fn encode<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
         let obj_type: u8 = self.object_type.into();
 
-        let value: u32 = (obj_type << 12) as u32 & self.permission as u32;
+        let value: u32 = ((obj_type as u32) << 12) & self.permission as u32;
 
         writer.write_all(&value.to_be_bytes())?;
 
