@@ -7,13 +7,16 @@ use tinygit::{
     identity::Identity,
     object::{commit::Commit, parse_header, tag::Tag, tree::Tree},
     parsing::Stream,
-    storage::object::{
-        loose::{read_object, read_object_compressed},
-        packed::{
-            DeltifiedObject, PackedObject, PackedObjectHeader, PackedObjectType, PackfileHeader,
-            UndeltifiedObject, base_object,
-            delta::{CopyInstruction, Delta, InsertInstruction, Instruction},
-            size,
+    storage::{
+        index::{Mode, ObjectType},
+        object::{
+            loose::{read_object, read_object_compressed},
+            packed::{
+                DeltifiedObject, PackedObject, PackedObjectHeader, PackedObjectType,
+                PackfileHeader, UndeltifiedObject, base_object,
+                delta::{CopyInstruction, Delta, InsertInstruction, Instruction},
+                size,
+            },
         },
     },
     time::Timestamp,
@@ -330,6 +333,19 @@ fn fuzz_packed_object() {
             let parsed_2 = PackedObject::decode_bytes(&buf).expect("should be parseable");
 
             assert_eq!(parsed_2, parsed);
+        }
+    });
+}
+
+#[test]
+fn mode_properties() {
+    check!().for_each(|input: &[u8]| {
+        if let Ok(mode) = Mode::decode_bytes(input) {
+            assert!(mode.permission == 0o0755 || mode.permission == 0o644);
+
+            if let ObjectType::GitLink | ObjectType::SymbolicLink = mode.object_type {
+                assert_eq!(mode.permission, 0)
+            };
         }
     });
 }
