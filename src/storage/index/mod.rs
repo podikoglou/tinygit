@@ -118,7 +118,7 @@ pub struct Mode {
     pub object_type: ObjectType,
 
     /// 0755 or 0644
-    pub permission: u8,
+    pub permission: u16,
 }
 
 impl Decode for Mode {
@@ -128,7 +128,7 @@ impl Decode for Mode {
         let object_type = ObjectType::try_from(((value >> 12) & 0xFF) as u8)
             .map_err(|err| ErrMode::Cut(ContextError::from_external_error(input, err)))?;
 
-        let permission: u8 = (value & 0x1FF)
+        let permission: u16 = (value & 0x1FF)
             .try_into()
             .map_err(|err| ErrMode::Cut(ContextError::from_external_error(input, err)))?;
 
