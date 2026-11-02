@@ -113,7 +113,7 @@ impl Decode for IndexEntry {
 /// |   unused   |  obj type  |   unused   | permission |
 /// | 31 .... 16 | 15  ... 12 | 11  ...  9 | 8  ...   0 |
 /// +------------+------------+------------+------------+
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Mode {
     pub object_type: ObjectType,
 
@@ -163,7 +163,7 @@ impl Encode for Mode {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum ObjectType {
     Regular,
     SymbolicLink,
