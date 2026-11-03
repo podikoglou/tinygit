@@ -8,7 +8,7 @@ use tinygit::{
     object::{commit::Commit, parse_header, tag::Tag, tree::Tree},
     parsing::Stream,
     storage::{
-        index::{Mode, ObjectType},
+        index::{Flags, Mode, ObjectType},
         object::{
             loose::{read_object, read_object_compressed},
             packed::{
@@ -357,6 +357,19 @@ fn mode_properties() {
 fn mode_roundtrip() {
     check!().for_each(|input: &[u8]| {
         if let Ok(parsed) = Mode::decode_bytes(input) {
+            let mut buf = Vec::default();
+
+            parsed.encode(&mut buf).expect("should be encodable");
+
+            assert_eq!(buf, input);
+        }
+    });
+}
+
+#[test]
+fn flags_roundtrip() {
+    check!().for_each(|input: &[u8]| {
+        if let Ok(parsed) = Flags::decode_bytes(input) {
             let mut buf = Vec::default();
 
             parsed.encode(&mut buf).expect("should be encodable");
