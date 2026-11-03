@@ -135,4 +135,7 @@ pub enum TinygitError {
 
     #[error("Invalid instruction")]
     InvalidInstruction,
+
+    #[error("Invalid flag : {0}")]
+    InvalidFlag(&'static str),
 }

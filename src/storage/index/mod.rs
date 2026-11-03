@@ -231,10 +231,46 @@ impl TryFrom<u8> for ObjectType {
 /// | x | x | xx | xxxxxxxxxxxx |
 /// +---+---+----+--------------+
 pub struct Flags {
-    pub assume_valid: bool,
-    pub extended: bool,
-    pub stage: u8,
-    pub name_length: u16,
+    assume_valid: bool,
+    extended: bool,
+    stage: u8,
+    name_length: u16,
+}
+
+impl Flags {
+    pub fn try_new(
+        assume_valid: bool,
+        extended: bool,
+        stage: u8,
+        name_length: u16,
+    ) -> Result<Self, TinygitError> {
+        if VERSION == 2 && extended {
+            return Err(TinygitError::InvalidFlag("extended"));
+        }
+
+        Ok(Self {
+            assume_valid,
+            extended,
+            stage,
+            name_length,
+        })
+    }
+
+    pub fn assume_valid(&self) -> bool {
+        self.assume_valid
+    }
+
+    pub fn extended(&self) -> bool {
+        self.extended
+    }
+
+    pub fn stage(&self) -> u8 {
+        self.stage
+    }
+
+    pub fn name_length(&self) -> u16 {
+        self.name_length
+    }
 }
 
 impl Decode for Flags {
@@ -243,13 +279,7 @@ impl Decode for Flags {
 
         let assume_valid: bool = value >> 7 == 1;
         let extended: bool = value >> 6 == 1;
-
-        if VERSION == 2 && extended {
-            return Err(ErrMode::Cut(ContextError::new()));
-        }
-
         let stage: u8 = (value >> 4) as u8;
-
         let name_length: u16 = value & 0x0FFF;
 
         Ok(Self {
