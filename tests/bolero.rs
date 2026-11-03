@@ -7,13 +7,16 @@ use tinygit::{
     identity::Identity,
     object::{commit::Commit, parse_header, tag::Tag, tree::Tree},
     parsing::Stream,
-    storage::object::{
-        loose::{read_object, read_object_compressed},
-        packed::{
-            DeltifiedObject, PackedObject, PackedObjectHeader, PackedObjectType, PackfileHeader,
-            UndeltifiedObject, base_object,
-            delta::{CopyInstruction, Delta, InsertInstruction, Instruction},
-            size,
+    storage::{
+        index::{Flags, Mode, ObjectType},
+        object::{
+            loose::CompressedLooseObject,
+            packed::{
+                DeltifiedObject, PackedObject, PackedObjectHeader, PackedObjectType,
+                PackfileHeader, UndeltifiedObject, base_object,
+                delta::{CopyInstruction, Delta, InsertInstruction, Instruction},
+                size,
+            },
         },
     },
     time::Timestamp,
@@ -361,6 +364,19 @@ fn mode_properties() {
 fn mode_roundtrip() {
     check!().for_each(|input: &[u8]| {
         if let Ok(parsed) = Mode::decode_bytes(input) {
+            let mut buf = Vec::default();
+
+            parsed.encode(&mut buf).expect("should be encodable");
+
+            assert_eq!(buf, input);
+        }
+    });
+}
+
+#[test]
+fn flags_roundtrip() {
+    check!().for_each(|input: &[u8]| {
+        if let Ok(parsed) = Flags::decode_bytes(input) {
             let mut buf = Vec::default();
 
             parsed.encode(&mut buf).expect("should be encodable");
