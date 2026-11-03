@@ -173,6 +173,7 @@ impl Encode for IndexEntry {
         self.mode.encode(writer)?;
 
         writer.write_all(&self.uid.to_be_bytes())?;
+        writer.write_all(&self.gid.to_be_bytes())?;
         writer.write_all(&self.file_size.to_be_bytes())?;
 
         writer.write_all(Into::<&[u8]>::into(&self.hash))?;
