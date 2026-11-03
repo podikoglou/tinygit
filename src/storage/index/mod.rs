@@ -131,13 +131,13 @@ impl Decode for IndexEntry {
         //
         // it should be 0x00, if it isn't, it probably means
         // we're parsing something wrong (or wrote it wrong!)
-        rest.verify(|x: &[u8]| x.iter().all(|x| *x == 0x00))
-            .parse_next(input)?;
+        let consumed_so_far = input.current_token_start() - start_offset;
+        let remainder = consumed_so_far % 8;
+        let extra_padding = if remainder == 0 { 0 } else { 8 - remainder };
 
-        // invalid padding!
-        if !(input.previous_token_end() - start_offset).is_multiple_of(8) {
-            return Err(ErrMode::Cut(ContextError::new()));
-        }
+        take(extra_padding)
+            .verify(|x: &[u8]| x.iter().all(|b| *b == 0x00))
+            .parse_next(input)?;
 
         Ok(Self {
             ctime_seconds,
