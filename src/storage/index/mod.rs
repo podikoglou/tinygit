@@ -182,9 +182,12 @@ impl Encode for IndexEntry {
 
         writer.write_all(&self.path_name)?;
 
-        let padding = 8 - writer.written % 8;
+        // compute how much padding we need (if any) to make it so the entry is divisible by 8
+        if !writer.written.is_multiple_of(8) {
+            let padding = 8 - writer.written % 8;
 
-        writer.write_all(&[0x00].repeat(padding))?;
+            writer.write_all(&[0x00].repeat(padding))?;
+        }
 
         Ok(())
     }
