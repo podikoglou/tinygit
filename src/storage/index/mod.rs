@@ -11,6 +11,7 @@ use winnow::{
 use crate::{
     TinygitError,
     ende::{Decode, Encode},
+    object::hash::{ObjectHash, parse_object_hash},
     parsing::Stream,
 };
 
@@ -84,6 +85,8 @@ pub struct IndexEntry {
     pub gid: u32,
 
     pub file_size: u32,
+
+    pub hash: ObjectHash,
 }
 
 impl Decode for IndexEntry {
@@ -103,6 +106,8 @@ impl Decode for IndexEntry {
             uid: be_u32,
             gid: be_u32,
             file_size: be_u32,
+
+            hash: parse_object_hash
 
         }}
         .parse_next(input)
