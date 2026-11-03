@@ -181,6 +181,8 @@ impl Encode for IndexEntry {
         self.flags.encode(writer)?;
 
         writer.write_all(&self.path_name)?;
+        // write the null terminator that separates the path from the padding
+        writer.write_all(&[0x00])?;
 
         // compute how much padding we need (if any) to make it so the entry is divisible by 8
         if !writer.written.is_multiple_of(8) {
