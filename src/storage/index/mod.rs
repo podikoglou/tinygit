@@ -4,6 +4,7 @@ use bstr::BString;
 use winnow::{
     Parser,
     binary::{be_u16, be_u32},
+    combinator::terminated,
     error::{ContextError, ErrMode, FromExternalError},
     prelude::ModalResult,
     token::{take, take_until},
@@ -117,9 +118,9 @@ impl Decode for IndexEntry {
         // NOTE: version 3 / later has a 16 bit field here, which we are skipping
 
         let path_name: BString = if flags.name_length() == 0xFFF {
-            take_until(1.., 0x00).parse_next(input)?
+            terminated(take_until(1.., 0x00), 0x00).parse_next(input)?
         } else {
-            take(flags.name_length() as usize).parse_next(input)?
+            terminated(take(flags.name_length() as usize), 0x00).parse_next(input)?
         }
         .into();
 
