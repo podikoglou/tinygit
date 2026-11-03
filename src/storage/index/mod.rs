@@ -7,7 +7,7 @@ use winnow::{
     combinator::terminated,
     error::{ContextError, ErrMode, FromExternalError},
     prelude::ModalResult,
-    token::{take, take_until},
+    token::{rest, take, take_until},
 };
 
 use crate::{
@@ -123,6 +123,13 @@ impl Decode for IndexEntry {
             terminated(take(flags.name_length() as usize), 0x00).parse_next(input)?
         }
         .into();
+
+        // this is padding to ensure the total size is divisible by 8
+        //
+        // it should be 0x00, if it isn't, it probably means
+        // we're parsing something wrong (or wrote it wrong!)
+        rest.verify(|x: &[u8]| x.iter().all(|x| *x == 0x00))
+            .parse_next(input)?;
 
         Ok(Self {
             ctime_seconds,
