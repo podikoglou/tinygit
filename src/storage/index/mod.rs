@@ -7,6 +7,7 @@ use winnow::{
     combinator::terminated,
     error::{ContextError, ErrMode, FromExternalError},
     prelude::ModalResult,
+    stream::Location,
     token::{rest, take, take_until},
 };
 
@@ -97,6 +98,8 @@ pub struct IndexEntry {
 
 impl Decode for IndexEntry {
     fn parse(input: &mut Stream<'_>) -> ModalResult<Self> {
+        let start_offset = input.current_token_start();
+
         let ctime_seconds = be_u32.parse_next(input)?;
         let ctime_ns_fractions = be_u32.parse_next(input)?;
         let mtime_seconds = be_u32.parse_next(input)?;
@@ -130,6 +133,11 @@ impl Decode for IndexEntry {
         // we're parsing something wrong (or wrote it wrong!)
         rest.verify(|x: &[u8]| x.iter().all(|x| *x == 0x00))
             .parse_next(input)?;
+
+        // invalid padding!
+        if !(input.previous_token_end() - start_offset).is_multiple_of(8) {
+            return Err(ErrMode::Cut(ContextError::new()));
+        }
 
         Ok(Self {
             ctime_seconds,
