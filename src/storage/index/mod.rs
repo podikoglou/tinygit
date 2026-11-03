@@ -227,9 +227,10 @@ impl TryFrom<u8> for ObjectType {
 
 #[derive(Debug)]
 
-/// +---+---+----+--------------+
-/// | x | x | xx | xxxxxxxxxxxx |
-/// +---+---+----+--------------+
+/// +----+----+--------+--------------+
+/// | x  | x  |   xx   | xxxxxxxxxxxx |
+/// | 15 | 14 | 13..12 |     11..0    |
+/// +----+----+--------+--------------+
 pub struct Flags {
     assume_valid: bool,
     extended: bool,
@@ -277,9 +278,9 @@ impl Decode for Flags {
     fn parse(input: &mut Stream<'_>) -> ModalResult<Self> {
         let value = be_u16.parse_next(input)?;
 
-        let assume_valid: bool = value >> 7 == 1;
-        let extended: bool = value >> 6 == 1;
-        let stage: u8 = (value >> 4) as u8;
+        let assume_valid: bool = value >> 15 == 1;
+        let extended: bool = (value >> 14) & 0b0001 == 1;
+        let stage: u8 = ((value >> 12) & 0b0011) as u8;
         let name_length: u16 = value & 0x0FFF;
 
         Ok(Self {
