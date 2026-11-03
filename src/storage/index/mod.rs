@@ -94,27 +94,40 @@ pub struct IndexEntry {
 
 impl Decode for IndexEntry {
     fn parse(input: &mut Stream<'_>) -> ModalResult<Self> {
-        seq! {Self {
-            ctime_seconds: be_u32,
-            ctime_ns_fractions: be_u32,
+        let ctime_seconds = be_u32.parse_next(input)?;
+        let ctime_ns_fractions = be_u32.parse_next(input)?;
+        let mtime_seconds = be_u32.parse_next(input)?;
+        let mtime_ns_fractions = be_u32.parse_next(input)?;
 
-            mtime_seconds: be_u32,
-            mtime_ns_fractions: be_u32,
+        let dev = be_u32.parse_next(input)?;
+        let ino = be_u32.parse_next(input)?;
 
-            dev: be_u32,
-            ino: be_u32,
+        let mode = Mode::parse.parse_next(input)?;
 
-            mode: Mode::parse,
+        let uid = be_u32.parse_next(input)?;
+        let gid = be_u32.parse_next(input)?;
+        let file_size = be_u32.parse_next(input)?;
 
-            uid: be_u32,
-            gid: be_u32,
-            file_size: be_u32,
+        let hash = parse_object_hash.parse_next(input)?;
 
-            hash: parse_object_hash,
+        let flags = Flags::parse.parse_next(input)?;
 
-            flags: Flags::parse
-        }}
-        .parse_next(input)
+        Ok(Self {
+            ctime_seconds,
+            ctime_ns_fractions,
+            mtime_seconds,
+            mtime_ns_fractions,
+            dev,
+            ino,
+            mode,
+            uid,
+            gid,
+            file_size,
+            hash,
+            flags,
+        })
+
+        // NOTE: version 3 / later has a 16 bit field here, which we are skipping
     }
 }
 
