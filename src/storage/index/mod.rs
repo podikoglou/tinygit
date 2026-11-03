@@ -256,12 +256,11 @@ impl TryFrom<u8> for ObjectType {
     }
 }
 
-#[derive(Debug)]
-
 /// +----+----+--------+--------------+
 /// | x  | x  |   xx   | xxxxxxxxxxxx |
 /// | 15 | 14 | 13..12 |     11..0    |
 /// +----+----+--------+--------------+
+#[derive(Debug)]
 pub struct Flags {
     assume_valid: bool,
     extended: bool,
