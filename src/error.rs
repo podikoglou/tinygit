@@ -130,6 +130,9 @@ pub enum TinygitError {
     #[error("Invalid object type: {0}")]
     InvalidObjectType(u8),
 
+    #[error("Invalid mode permission: {0:o}")]
+    InvalidModePermission(u16),
+
     #[error("Invalid instruction")]
     InvalidInstruction,
 }

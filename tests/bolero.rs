@@ -345,10 +345,10 @@ fn fuzz_packed_object() {
 fn mode_properties() {
     check!().for_each(|input: &[u8]| {
         if let Ok(mode) = Mode::decode_bytes(input) {
-            assert!(mode.permission == 0o0755 || mode.permission == 0o644);
+            assert!(mode.permission() == 0o0755 || mode.permission() == 0o644);
 
-            if let ObjectType::GitLink | ObjectType::SymbolicLink = mode.object_type {
-                assert_eq!(mode.permission, 0)
+            if let ObjectType::GitLink | ObjectType::SymbolicLink = mode.object_type() {
+                assert_eq!(mode.permission(), 0)
             };
         }
     });

@@ -115,10 +115,37 @@ impl Decode for IndexEntry {
 /// +------------+------------+------------+------------+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Mode {
-    pub object_type: ObjectType,
+    object_type: ObjectType,
 
-    /// 0o0755 or 0o0644
-    pub permission: u16,
+    /// 0o0755 or 0o0644 for regular files, 0 for symbolic links and git links.
+    permission: u16,
+}
+
+impl Mode {
+    /// Creates a mode, after checking the constraints that the index format puts on it.
+    pub fn try_new(object_type: ObjectType, permission: u16) -> Result<Self, TinygitError> {
+        let permission_is_valid = match object_type {
+            ObjectType::Regular => permission == 0o0755 || permission == 0o0644,
+            ObjectType::SymbolicLink | ObjectType::GitLink => permission == 0,
+        };
+
+        if !permission_is_valid {
+            return Err(TinygitError::InvalidModePermission(permission));
+        }
+
+        Ok(Self {
+            object_type,
+            permission,
+        })
+    }
+
+    pub fn object_type(&self) -> ObjectType {
+        self.object_type
+    }
+
+    pub fn permission(&self) -> u16 {
+        self.permission
+    }
 }
 
 impl Decode for Mode {
@@ -132,22 +159,8 @@ impl Decode for Mode {
             .try_into()
             .map_err(|err| ErrMode::Cut(ContextError::from_external_error(input, err)))?;
 
-        // TODO: encode the two constraints below in a `Mode::try_new` instead
-        if !(permission == 0o0755 || permission == 0o0644) {
-            return Err(ErrMode::Cut(ContextError::new()));
-        }
-
-        // this could be considered too strict
-        if let ObjectType::GitLink | ObjectType::SymbolicLink = object_type
-            && permission != 0
-        {
-            return Err(ErrMode::Cut(ContextError::new()));
-        }
-
-        Ok(Self {
-            object_type,
-            permission,
-        })
+        Self::try_new(object_type, permission)
+            .map_err(|err| ErrMode::Cut(ContextError::from_external_error(input, err)))
     }
 }
 
