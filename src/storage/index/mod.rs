@@ -2,10 +2,11 @@ use std::{io::prelude::Write, path::PathBuf};
 
 use winnow::{
     Parser,
-    binary::be_u32,
+    binary::{be_u16, be_u32},
     combinator::{alt, seq},
     error::{ContextError, ErrMode, FromExternalError},
     prelude::ModalResult,
+    token::any,
 };
 
 use crate::{
@@ -87,6 +88,8 @@ pub struct IndexEntry {
     pub file_size: u32,
 
     pub hash: ObjectHash,
+
+    pub flags: Flags,
 }
 
 impl Decode for IndexEntry {
@@ -107,8 +110,9 @@ impl Decode for IndexEntry {
             gid: be_u32,
             file_size: be_u32,
 
-            hash: parse_object_hash
+            hash: parse_object_hash,
 
+            flags: Flags::parse
         }}
         .parse_next(input)
     }
@@ -218,5 +222,54 @@ impl TryFrom<u8> for ObjectType {
             0b1110 => Ok(ObjectType::GitLink),
             other => Err(TinygitError::InvalidObjectType(other)),
         }
+    }
+}
+
+#[derive(Debug)]
+
+/// +---+---+----+--------------+
+/// | x | x | xx | xxxxxxxxxxxx |
+/// +---+---+----+--------------+
+pub struct Flags {
+    pub assume_valid: bool,
+    pub extended: bool,
+    pub stage: u8,
+    pub name_length: u16,
+}
+
+impl Decode for Flags {
+    fn parse(input: &mut Stream<'_>) -> ModalResult<Self> {
+        let value = be_u16.parse_next(input)?;
+
+        let assume_valid: bool = value >> 7 == 1;
+        let extended: bool = value >> 6 == 1;
+
+        if VERSION == 2 && extended {
+            return Err(ErrMode::Cut(ContextError::new()));
+        }
+
+        let stage: u8 = (value >> 4) as u8;
+
+        let name_length: u16 = value & 0x0FFF;
+
+        Ok(Self {
+            assume_valid,
+            extended,
+            stage,
+            name_length,
+        })
+    }
+}
+
+impl Encode for Flags {
+    fn encode<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
+        let value: u16 = (u16::from(self.assume_valid) << 15)
+            | (u16::from(self.extended) << 14)
+            | ((self.stage as u16) << 12)
+            | self.name_length;
+
+        writer.write_all(&value.to_be_bytes())?;
+
+        Ok(())
     }
 }
