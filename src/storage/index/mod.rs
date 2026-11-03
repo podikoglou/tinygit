@@ -1,12 +1,12 @@
 use std::{io::prelude::Write, path::PathBuf};
 
+use bstr::BString;
 use winnow::{
     Parser,
     binary::{be_u16, be_u32},
-    combinator::{alt, seq},
     error::{ContextError, ErrMode, FromExternalError},
     prelude::ModalResult,
-    token::any,
+    token::{take, take_until},
 };
 
 use crate::{
@@ -90,6 +90,8 @@ pub struct IndexEntry {
     pub hash: ObjectHash,
 
     pub flags: Flags,
+
+    pub path_name: BString,
 }
 
 impl Decode for IndexEntry {
@@ -112,6 +114,15 @@ impl Decode for IndexEntry {
 
         let flags = Flags::parse.parse_next(input)?;
 
+        // NOTE: version 3 / later has a 16 bit field here, which we are skipping
+
+        let path_name: BString = if flags.name_length() == 0xFFF {
+            take_until(1.., 0x00).parse_next(input)?
+        } else {
+            take(flags.name_length() as usize).parse_next(input)?
+        }
+        .into();
+
         Ok(Self {
             ctime_seconds,
             ctime_ns_fractions,
@@ -125,9 +136,8 @@ impl Decode for IndexEntry {
             file_size,
             hash,
             flags,
+            path_name,
         })
-
-        // NOTE: version 3 / later has a 16 bit field here, which we are skipping
     }
 }
 
