@@ -149,6 +149,38 @@ impl Decode for IndexEntry {
     }
 }
 
+impl Encode for IndexEntry {
+    fn encode<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
+        let writer = &mut CountingWriter::new(writer);
+
+        writer.write_all(&self.ctime_seconds.to_be_bytes())?;
+        writer.write_all(&self.ctime_ns_fractions.to_be_bytes())?;
+
+        writer.write_all(&self.mtime_seconds.to_be_bytes())?;
+        writer.write_all(&self.mtime_ns_fractions.to_be_bytes())?;
+
+        writer.write_all(&self.dev.to_be_bytes())?;
+        writer.write_all(&self.ino.to_be_bytes())?;
+
+        self.mode.encode(writer)?;
+
+        writer.write_all(&self.uid.to_be_bytes())?;
+        writer.write_all(&self.file_size.to_be_bytes())?;
+
+        writer.write_all(Into::<&[u8]>::into(&self.hash))?;
+
+        self.flags.encode(writer)?;
+
+        writer.write_all(&self.path_name)?;
+
+        let padding = 8 - writer.written % 8;
+
+        writer.write_all(&[0x00].repeat(padding))?;
+
+        Ok(())
+    }
+}
+
 /// +------------+------------+------------+------------+
 /// |   unused   |  obj type  |   unused   | permission |
 /// | 31 .... 16 | 15  ... 12 | 11  ...  9 | 8  ...   0 |
@@ -332,5 +364,32 @@ impl Encode for Flags {
         writer.write_all(&value.to_be_bytes())?;
 
         Ok(())
+    }
+}
+
+/// A wrapper of a [Write] that tracks how many bytes it has written.
+struct CountingWriter<W: Write> {
+    writer: W,
+    written: usize,
+}
+
+impl<W: Write> CountingWriter<W> {
+    fn new(writer: W) -> Self {
+        Self { writer, written: 0 }
+    }
+}
+
+impl<W: Write> Write for CountingWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let size = buf.len();
+
+        self.writer.write_all(buf)?;
+        self.written += size;
+
+        Ok(size)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
     }
 }
