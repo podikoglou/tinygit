@@ -152,7 +152,17 @@ impl Decode for Mode {
     fn parse(input: &mut Stream<'_>) -> ModalResult<Self> {
         let value = be_u32.parse_next(input)?;
 
-        let object_type = ObjectType::try_from(((value >> 12) & 0xFF) as u8)
+        // ensure the first unused part is 0
+        if value >> 16 != 0 {
+            return Err(ErrMode::Cut(ContextError::new()));
+        }
+
+        // ensure the second unused part is 0
+        if (value >> 9) & 0b0111 != 0 {
+            return Err(ErrMode::Cut(ContextError::new()));
+        }
+
+        let object_type = ObjectType::try_from(((value >> 12) & 0xF) as u8)
             .map_err(|err| ErrMode::Cut(ContextError::from_external_error(input, err)))?;
 
         let permission: u16 = (value & 0x1FF)
