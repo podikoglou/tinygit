@@ -1,14 +1,18 @@
-use std::{io::prelude::Write, path::PathBuf};
+use std::{
+    fs::File,
+    io::{BufWriter, prelude::Write},
+    path::PathBuf,
+};
 
 use bstr::BString;
 use winnow::{
     Parser,
     binary::{be_u16, be_u32},
-    combinator::terminated,
+    combinator::{repeat, terminated},
     error::{ContextError, ErrMode, FromExternalError},
     prelude::ModalResult,
     stream::Location,
-    token::{rest, take, take_until},
+    token::{take, take_until},
 };
 
 use crate::{
@@ -24,11 +28,41 @@ const VERSION: u32 = 2;
 #[derive(Debug)]
 pub struct Index {
     pub path: PathBuf,
+    pub header: IndexHeader,
+    pub entries: Vec<IndexEntry>,
 }
 
 impl Index {
     pub fn open(path: PathBuf) -> Result<Self, TinygitError> {
-        Ok(Self { path })
+        let (header, entries) = <(IndexHeader, Vec<IndexEntry>)>::decode_file(&path)?;
+
+        Ok(Self {
+            path,
+            header,
+            entries,
+        })
+    }
+
+    pub fn write(&self) -> Result<(), TinygitError> {
+        let mut file = File::create(&self.path)?;
+
+        self.header.encode(&mut file)?;
+
+        for entry in &self.entries {
+            entry.encode(&mut file)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl Decode for (IndexHeader, Vec<IndexEntry>) {
+    fn parse(input: &mut Stream<'_>) -> ModalResult<Self> {
+        let header = IndexHeader::parse.parse_next(input)?;
+
+        let entries = repeat(header.entries as usize, IndexEntry::parse).parse_next(input)?;
+
+        Ok((header, entries))
     }
 }
 
