@@ -86,18 +86,6 @@ impl RawObject {
 
 impl Encode for RawObject {
     fn encode<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
-        write!(
-            writer,
-            "{} {}\0",
-            match self.r#type {
-                ObjectType::Blob => "blob",
-                ObjectType::Tree => "tree",
-                ObjectType::Commit => "commit",
-                ObjectType::Tag => "tag",
-            },
-            self.bytes.len()
-        )?;
-
         writer.write_all(&self.bytes)?;
 
         Ok(())
