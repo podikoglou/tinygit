@@ -4,7 +4,7 @@
 use bolero::{TypeGenerator, ValueGenerator, check, one_value_of, produce};
 use nutype::nutype;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs, iter,
     path::Path,
     process::{Command, Output},
@@ -30,32 +30,60 @@ struct Sequence(Vec<Op>);
 impl TypeGenerator for Sequence {
     fn generate<D: bolero::Driver>(driver: &mut D) -> Option<Self> {
         let mut seq: Vec<Op> = Vec::default();
-        let mut names: Vec<String> = Vec::default();
+
+        // working tree
+        let mut working: HashSet<String> = HashSet::default();
+
+        // tracked files
+        let mut index: HashSet<String> = HashSet::default();
 
         let n = (0..32usize).generate(driver)?;
 
         for _ in 0..n {
-            let kind = {
-                if names.is_empty() {
-                    OpDiscriminants::Create
-                } else {
-                    OpDiscriminants::generate(driver)?
-                }
-            };
+            let mut kinds = Vec::default();
+
+            kinds.push(OpDiscriminants::Create);
+
+            // `git add` is valid for any file that exists in the working tree.
+            if !working.is_empty() {
+                kinds.push(OpDiscriminants::GitAdd);
+            }
+
+            // `git rm` is valid only for files tracked by the index.
+            if !index.is_empty() {
+                kinds.push(OpDiscriminants::GitRm);
+            }
+
+            let kind = one_value_of(&kinds[..]).generate(driver)?;
 
             let op = match kind {
                 OpDiscriminants::Create => {
                     let name = Name::generate(driver)?;
+                    let contents = <Vec<u8> as TypeGenerator>::generate(driver)?;
 
-                    names.push(name.0.clone());
+                    working.insert(name.0.clone());
 
-                    Op::Create(name, <Vec<u8> as TypeGenerator>::generate(driver)?)
+                    Op::Create(name, contents)
                 }
                 OpDiscriminants::GitAdd => {
-                    Op::GitAdd(vec![Name(one_value_of(&names[..]).generate(driver)?)])
+                    let names: Vec<String> = working.iter().cloned().collect();
+                    let name = Name(one_value_of(&names[..]).generate(driver)?);
+
+                    index.insert(name.0.clone());
+
+                    Op::GitAdd(vec![name])
                 }
                 OpDiscriminants::GitRm => {
-                    Op::GitRm(vec![Name(one_value_of(&names[..]).generate(driver)?)])
+                    let names: Vec<String> = index.iter().cloned().collect();
+                    let name = Name(one_value_of(&names[..]).generate(driver)?);
+
+                    assert!(
+                        working.remove(&name.0),
+                        "name should exist in the working tree"
+                    );
+                    assert!(index.remove(&name.0), "name should exist in the index");
+
+                    Op::GitRm(vec![name])
                 }
             };
 
@@ -111,7 +139,8 @@ fn fuzz_index_parsing() {
                 Op::GitRm(names) => {
                     let out = run_git(
                         path,
-                        &iter::once("rm")
+                        &["rm", "-f"]
+                            .into_iter()
                             .chain(names.iter().map(|x| x.0.as_str()))
                             .collect::<Vec<&str>>(),
                     );
@@ -122,6 +151,9 @@ fn fuzz_index_parsing() {
                         working
                             .remove(&name.0)
                             .expect("name should exist in the working tree");
+                        expected
+                            .remove(&name.0)
+                            .expect("name should exist in the index");
                     }
                 }
             };
