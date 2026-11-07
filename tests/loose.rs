@@ -4,21 +4,17 @@ use include_dir::{Dir, include_dir};
 use itertools::Itertools;
 use tinygit::{
     ende::Decode,
-    error::ParserContext,
     storage::object::{LazyObject, loose::CompressedLooseObject},
 };
 
 mod fixtures {
-    use tinygit::{
-        ende::Decode, error::ParserContext, storage::object::loose::CompressedLooseObject,
-    };
+    use tinygit::{ende::Decode, storage::object::loose::CompressedLooseObject};
 
     #[test]
     fn read_loose_blob() {
         let bytes = include_bytes!("fixtures/objects/blob-1.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose blob object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose blob object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -26,9 +22,8 @@ mod fixtures {
     #[test]
     fn read_loose_tree() {
         let bytes = include_bytes!("fixtures/objects/tree-1.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose tree object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose tree object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -36,9 +31,8 @@ mod fixtures {
     #[test]
     fn read_loose_commit() {
         let bytes = include_bytes!("fixtures/objects/commit-1.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose commit object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose commit object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -46,9 +40,8 @@ mod fixtures {
     #[test]
     fn read_loose_non_root_commit() {
         let bytes = include_bytes!("fixtures/objects/commit-2.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose commit object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose commit object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -56,9 +49,8 @@ mod fixtures {
     #[test]
     fn read_loose_merge_commit() {
         let bytes = include_bytes!("fixtures/objects/commit-3.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose commit object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose commit object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -66,9 +58,8 @@ mod fixtures {
     #[test]
     fn read_loose_signed_commit() {
         let bytes = include_bytes!("fixtures/objects/commit-4.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose commit object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose commit object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -76,9 +67,8 @@ mod fixtures {
     #[test]
     fn read_loose_commit_with_extra_properties() {
         let bytes = include_bytes!("fixtures/objects/commit-5.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose commit object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose commit object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -86,9 +76,8 @@ mod fixtures {
     #[test]
     fn read_loose_commit_with_empty_email() {
         let bytes = include_bytes!("fixtures/objects/commit-6.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose commit object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose commit object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -96,9 +85,8 @@ mod fixtures {
     #[test]
     fn read_loose_signed_commit_with_extra_properties() {
         let bytes = include_bytes!("fixtures/objects/commit-7.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose commit object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose commit object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -106,9 +94,8 @@ mod fixtures {
     #[test]
     fn read_loose_commit_with_non_utf8_author() {
         let bytes = include_bytes!("fixtures/objects/commit-8.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose commit object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose commit object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -116,9 +103,8 @@ mod fixtures {
     #[test]
     fn read_loose_commit_with_empty_author_name() {
         let bytes = include_bytes!("fixtures/objects/commit-9.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose commit object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose commit object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -126,9 +112,8 @@ mod fixtures {
     #[test]
     fn read_loose_commit_with_non_utf8_description() {
         let bytes = include_bytes!("fixtures/objects/commit-10.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose commit object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose commit object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -136,9 +121,8 @@ mod fixtures {
     #[test]
     fn read_loose_tag() {
         let bytes = include_bytes!("fixtures/objects/tag-1.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose tag object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose tag object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -146,9 +130,8 @@ mod fixtures {
     #[test]
     fn read_loose_tag_with_carriage_return_in_name() {
         let bytes = include_bytes!("fixtures/objects/tag-2.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose tag object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose tag object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -156,9 +139,8 @@ mod fixtures {
     #[test]
     fn read_loose_taggerless_tag() {
         let bytes = include_bytes!("fixtures/objects/tag-3.obj");
-        let object =
-            CompressedLooseObject::decode_bytes_with_context(&bytes[..], ParserContext::None)
-                .expect("should be able to read loose tag object");
+        let object = CompressedLooseObject::decode_bytes(&bytes[..])
+            .expect("should be able to read loose tag object");
 
         insta::assert_debug_snapshot!(object);
     }
@@ -329,7 +311,7 @@ mod roundtrip {
         object.encode(&mut buf).unwrap();
 
         // read back
-        let raw = CompressedLooseObject::decode_bytes_with_context(&buf[..], ParserContext::None)
+        let raw = CompressedLooseObject::decode_bytes(&buf[..])
             .unwrap()
             .into_inner()
             .into_inner();
@@ -351,7 +333,7 @@ mod roundtrip {
         object.encode(&mut buf).unwrap();
 
         // read back
-        let raw = CompressedLooseObject::decode_bytes_with_context(&buf[..], ParserContext::None)
+        let raw = CompressedLooseObject::decode_bytes(&buf[..])
             .unwrap()
             .into_inner()
             .into_inner();
@@ -373,7 +355,7 @@ mod roundtrip {
         object.encode(&mut buf).unwrap();
 
         // read back
-        let raw = CompressedLooseObject::decode_bytes_with_context(&buf[..], ParserContext::None)
+        let raw = CompressedLooseObject::decode_bytes(&buf[..])
             .unwrap()
             .into_inner()
             .into_inner();
@@ -395,7 +377,7 @@ mod roundtrip {
         object.encode(&mut buf).unwrap();
 
         // read back
-        let raw = CompressedLooseObject::decode_bytes_with_context(&buf[..], ParserContext::None)
+        let raw = CompressedLooseObject::decode_bytes(&buf[..])
             .unwrap()
             .into_inner()
             .into_inner();
@@ -419,7 +401,7 @@ mod roundtrip {
         let mut buf = Vec::new();
         object.encode(&mut buf).unwrap();
 
-        let raw = CompressedLooseObject::decode_bytes_with_context(&buf[..], ParserContext::None)
+        let raw = CompressedLooseObject::decode_bytes(&buf[..])
             .unwrap()
             .into_inner()
             .into_inner();
@@ -450,9 +432,7 @@ fn hash_fixtures() {
         let obj_bytes = object_file.contents();
 
         // test `Object::hash()`
-        let parsed =
-            CompressedLooseObject::decode_bytes_with_context(obj_bytes, ParserContext::None)
-                .expect("couldn't parse object");
+        let parsed = CompressedLooseObject::decode_bytes(obj_bytes).expect("couldn't parse object");
 
         let hash = parsed
             .into_inner()
