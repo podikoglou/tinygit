@@ -9,10 +9,10 @@ use tinygit::{
     object::{ObjectType, hash::ObjectHash},
     parsing::Stream,
     storage::object::packed::{
-            PackedObject::{self},
-            Packfile, PackfileHeader,
-            idx::PackIndex,
-        },
+        PackedObject::{self},
+        Packfile, PackfileHeader,
+        idx::PackIndex,
+    },
 };
 use winnow::Parser;
 
