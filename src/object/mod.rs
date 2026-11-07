@@ -56,35 +56,12 @@ impl Object {
 impl Encode for Object {
     /// Writes the uncompressed object to a write.
     fn encode<W: Write>(&self, writer: &mut W) -> Result<(), crate::TinygitError> {
-        let mut buf: Vec<u8> = Vec::new();
-
         match self {
-            Self::Blob(blob) => {
-                write!(writer, "blob ")?;
-
-                blob.encode(&mut buf)?;
-            }
-            Self::Tree(tree) => {
-                write!(writer, "tree ")?;
-
-                tree.encode(&mut buf)?;
-            }
-            Self::Commit(commit) => {
-                write!(writer, "commit ")?;
-
-                commit.encode(&mut buf)?;
-            }
-            Self::Tag(tag) => {
-                write!(writer, "tag ")?;
-
-                tag.encode(&mut buf)?;
-            }
+            Self::Blob(blob) => blob.encode(writer),
+            Self::Tree(tree) => tree.encode(writer),
+            Self::Commit(commit) => commit.encode(writer),
+            Self::Tag(tag) => tag.encode(writer),
         }
-
-        write!(writer, "{}\0", buf.len())?;
-        writer.write_all(&buf)?;
-
-        Ok(())
     }
 }
 
