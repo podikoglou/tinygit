@@ -4,7 +4,7 @@
 use bolero::{TypeGenerator, ValueGenerator, check, one_value_of, produce};
 use nutype::nutype;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fs, iter,
     path::Path,
     process::{Command, Output},
@@ -102,24 +102,50 @@ fn run_git(dir: &Path, args: &[&str]) -> Output {
         .expect("should be able to run git")
 }
 
+/// Ask the real Git implementation what the index contains.
+fn expected_index_entries(dir: &Path) -> Vec<(String, u32)> {
+    let out = run_git(dir, &["ls-files", "--debug", "-z"]);
+
+    assert!(out.status.success(), "git ls-files shouldn't fail");
+
+    // `-z` terminates each path with NUL, but the debug fields stay newline-terminated.
+    // Generated names cannot contain NUL or newline, so replacing NUL with newline gives
+    // one path line followed by its debug lines.
+    let output = String::from_utf8_lossy(&out.stdout).replace('\0', "\n");
+
+    let mut entries = Vec::default();
+    let mut path = None;
+
+    for line in output.lines() {
+        if let Some(size) = line.strip_prefix("  size: ") {
+            let size = size
+                .split_whitespace()
+                .next()
+                .expect("size should have a value")
+                .parse::<u32>()
+                .expect("size should be a number");
+
+            entries.push((path.take().expect("size should follow a path"), size));
+        } else if !line.starts_with("  ") {
+            path = Some(line.to_owned());
+        }
+    }
+
+    entries
+}
+
 #[test]
 fn fuzz_index_parsing() {
     check!().with_type::<Sequence>().for_each(|ops| {
         let dir = TempDir::new().unwrap();
         let path = dir.path();
 
-        let mut working: HashMap<String, Vec<u8>> = HashMap::default();
-        let mut expected: HashMap<String, Vec<u8>> = HashMap::default();
-
         run_git(path, &["init"]);
 
         for op in ops.clone().into_inner() {
             match op {
                 Op::Create(name, contents) => {
-                    fs::write(path.join(&name.0), contents.clone())
-                        .expect("should be able to write file");
-
-                    working.insert(name.0, contents);
+                    fs::write(path.join(&name.0), contents).expect("should be able to write file");
                 }
                 Op::GitAdd(names) => {
                     let out = run_git(
@@ -129,12 +155,6 @@ fn fuzz_index_parsing() {
                             .collect::<Vec<&str>>(),
                     );
                     assert!(out.status.success(), "git add shouldn't fail");
-
-                    for name in &names {
-                        let bytes = working.get(&name.0).expect("name should exist");
-
-                        expected.insert(name.0.clone(), bytes.clone());
-                    }
                 }
                 Op::GitRm(names) => {
                     let out = run_git(
@@ -146,18 +166,12 @@ fn fuzz_index_parsing() {
                     );
 
                     assert!(out.status.success(), "git rm shouldn't fail");
-
-                    for name in &names {
-                        working
-                            .remove(&name.0)
-                            .expect("name should exist in the working tree");
-                        expected
-                            .remove(&name.0)
-                            .expect("name should exist in the index");
-                    }
                 }
             };
         }
+
+        let mut expected = expected_index_entries(path);
+        expected.sort();
 
         let index_path = path.join(".git/index");
 
@@ -169,12 +183,6 @@ fn fuzz_index_parsing() {
         // open index and assert it was properly parsed
         let index = Index::open(index_path).expect("should be able to parse index");
 
-        assert_eq!(
-            index.entries.len(),
-            expected.len(),
-            "index should have correct amount of entries"
-        );
-
         // assert entries correctness
         let mut parsed: Vec<(String, u32)> = index
             .entries
@@ -183,13 +191,6 @@ fn fuzz_index_parsing() {
             .collect();
 
         parsed.sort();
-
-        let mut expected: Vec<(String, u32)> = expected
-            .iter()
-            .map(|(path, bytes)| (path.clone(), bytes.len() as u32))
-            .collect();
-
-        expected.sort();
 
         assert_eq!(parsed, expected);
     });
