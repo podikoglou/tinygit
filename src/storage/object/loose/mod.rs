@@ -5,12 +5,14 @@ pub mod db;
 
 pub use db::LooseDb;
 use nutype::nutype;
+use winnow::Parser;
 
 use crate::{
     TinygitError,
-    ende::Encode,
+    ende::{Decode, Encode},
     error::ParserContext,
-    object::{Object, ObjectType, parse_object},
+    object::{Object, ObjectType, object, parse_object},
+    parsing::Stream,
     storage::object::RawObject,
 };
 use flate2::read::ZlibDecoder;
@@ -35,6 +37,18 @@ impl Encode for LooseObject {
         writer.write_all(&raw.bytes)?;
 
         Ok(())
+    }
+}
+
+impl Decode for LooseObject {
+    fn parse(input: &mut Stream<'_>) -> winnow::prelude::ModalResult<Self> {
+        object
+            .verify_map(|object| {
+                let raw: RawObject = object.try_into().ok()?;
+
+                Some(LooseObject::new(raw))
+            })
+            .parse_next(input)
     }
 }
 
