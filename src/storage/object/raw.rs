@@ -3,6 +3,7 @@ use std::{fmt::Debug, io::Write};
 use flate2::{Compression, write::ZlibEncoder};
 use humansize::{DECIMAL, format_size};
 use sha1::{Digest, Sha1};
+use strum::IntoDiscriminant;
 use winnow::Parser;
 
 use crate::{
@@ -111,5 +112,17 @@ impl Debug for RawObject {
             self.r#type,
             format_size(self.bytes.len(), DECIMAL)
         )
+    }
+}
+
+impl TryFrom<Object> for RawObject {
+    type Error = TinygitError;
+
+    fn try_from(value: Object) -> Result<Self, Self::Error> {
+        let mut buf = Vec::default();
+
+        value.encode(&mut buf)?;
+
+        Ok(Self::new(value.discriminant(), buf))
     }
 }
