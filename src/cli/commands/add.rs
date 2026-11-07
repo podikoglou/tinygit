@@ -12,7 +12,7 @@ use tinygit::{
 /// Add file contents to the index
 pub struct AddCommand {
     /// paths of the files to stage.
-    #[argh(option)]
+    #[argh(positional)]
     files: Vec<PathBuf>,
 }
 
