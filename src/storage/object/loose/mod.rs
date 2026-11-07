@@ -5,18 +5,20 @@ pub mod db;
 
 pub use db::LooseDb;
 use nutype::nutype;
-use winnow::Parser;
+use winnow::{
+    Parser,
+    error::{ContextError, ErrMode, FromExternalError as _},
+};
 
 use crate::{
     TinygitError,
     ende::{Decode, Encode},
-    error::ParserContext,
-    object::{Object, ObjectType, object, parse_object},
+    object::{ObjectType, object},
     parsing::Stream,
     storage::object::RawObject,
 };
-use flate2::read::ZlibDecoder;
-use std::io::{BufRead, Read, prelude::Write};
+use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
+use std::io::{Read, prelude::Write};
 
 #[nutype(derive(Debug, PartialEq, AsRef))]
 pub struct LooseObject(RawObject);
@@ -52,30 +54,39 @@ impl Decode for LooseObject {
     }
 }
 
-/// Reads and parses an [Object] from a [`Read`].
-///
-/// Objects are typically small enough, so this is not a streaming operation.
-pub fn read_object(
-    mut reader: impl BufRead,
-    context: ParserContext,
-) -> Result<Object, TinygitError> {
-    let mut buf = Vec::new();
-    reader.read_to_end(&mut buf)?;
-
-    parse_object(&buf, context)
+impl From<CompressedLooseObject> for LooseObject {
+    fn from(val: CompressedLooseObject) -> Self {
+        val.into_inner()
+    }
 }
 
-/// Reads, decompresses and parses an [Object] from a [`Read`].
-///
-/// Objects are typically small enough, so this is not a streaming operation.
-pub fn read_object_compressed(
-    reader: impl BufRead,
-    context: ParserContext,
-) -> Result<Object, TinygitError> {
-    let mut decoder = ZlibDecoder::new(reader);
+#[nutype(derive(Debug, PartialEq, AsRef))]
+pub struct CompressedLooseObject(LooseObject);
 
-    let mut buf = Vec::new();
-    decoder.read_to_end(&mut buf)?;
+impl Encode for CompressedLooseObject {
+    fn encode<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
+        let mut encoder = ZlibEncoder::new(writer, Compression::default());
 
-    parse_object(&buf, context)
+        self.as_ref().encode(&mut encoder)
+    }
+}
+
+impl Decode for CompressedLooseObject {
+    fn parse(input: &mut Stream<'_>) -> winnow::prelude::ModalResult<Self> {
+        let mut decoder = ZlibDecoder::new(&input[..]);
+
+        let mut buf = Vec::new();
+
+        decoder
+            .read_to_end(&mut buf)
+            .map_err(|err| ErrMode::Cut(ContextError::from_external_error(input, err)))?;
+
+        LooseObject::parse(&mut Stream::new(&buf)).map(Self::new)
+    }
+}
+
+impl From<LooseObject> for CompressedLooseObject {
+    fn from(val: LooseObject) -> Self {
+        Self::new(val)
+    }
 }
