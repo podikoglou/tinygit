@@ -29,16 +29,19 @@ const VERSION: u32 = 2;
 pub struct Index {
     pub path: PathBuf,
     pub header: IndexHeader,
+    pub hash: ObjectHash,
     pub entries: Vec<IndexEntry>,
 }
 
 impl Index {
     pub fn open(path: PathBuf) -> Result<Self, TinygitError> {
-        let (header, entries) = <(IndexHeader, Vec<IndexEntry>)>::decode_file(&path)?;
+        let (header, entries, hash) =
+            <(IndexHeader, Vec<IndexEntry>, ObjectHash)>::decode_file(&path)?;
 
         Ok(Self {
             path,
             header,
+            hash,
             entries,
         })
     }
@@ -56,13 +59,15 @@ impl Index {
     }
 }
 
-impl Decode for (IndexHeader, Vec<IndexEntry>) {
+impl Decode for (IndexHeader, Vec<IndexEntry>, ObjectHash) {
     fn parse(input: &mut Stream<'_>) -> ModalResult<Self> {
         let header = IndexHeader::parse.parse_next(input)?;
 
         let entries = repeat(header.entries as usize, IndexEntry::parse).parse_next(input)?;
 
-        Ok((header, entries))
+        let hash = parse_object_hash.parse_next(input)?;
+
+        Ok((header, entries, hash))
     }
 }
 
