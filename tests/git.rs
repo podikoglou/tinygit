@@ -267,41 +267,46 @@ fn expected_index_entries(dir: &Path) -> Vec<Entry> {
     entries
 }
 
+/// Creates a repository with the real Git implementation, and applies the generated operations.
+fn run_ops(path: &Path, ops: &Sequence) {
+    run_git(path, &["init"]);
+
+    for op in ops.clone().into_inner() {
+        match op {
+            Op::Create(name, contents) => {
+                fs::write(path.join(&name.0), contents).expect("should be able to write file");
+            }
+            Op::GitAdd(names) => {
+                let out = run_git(
+                    path,
+                    &iter::once("add")
+                        .chain(names.iter().map(|x| x.0.as_str()))
+                        .collect::<Vec<&str>>(),
+                );
+                assert!(out.status.success(), "git add shouldn't fail");
+            }
+            Op::GitRm(names) => {
+                let out = run_git(
+                    path,
+                    &["rm", "-f"]
+                        .into_iter()
+                        .chain(names.iter().map(|x| x.0.as_str()))
+                        .collect::<Vec<&str>>(),
+                );
+
+                assert!(out.status.success(), "git rm shouldn't fail");
+            }
+        };
+    }
+}
+
 #[test]
 fn fuzz_index_parsing() {
     check!().with_type::<Sequence>().for_each(|ops| {
         let dir = TempDir::new().unwrap();
         let path = dir.path();
 
-        run_git(path, &["init"]);
-
-        for op in ops.clone().into_inner() {
-            match op {
-                Op::Create(name, contents) => {
-                    fs::write(path.join(&name.0), contents).expect("should be able to write file");
-                }
-                Op::GitAdd(names) => {
-                    let out = run_git(
-                        path,
-                        &iter::once("add")
-                            .chain(names.iter().map(|x| x.0.as_str()))
-                            .collect::<Vec<&str>>(),
-                    );
-                    assert!(out.status.success(), "git add shouldn't fail");
-                }
-                Op::GitRm(names) => {
-                    let out = run_git(
-                        path,
-                        &["rm", "-f"]
-                            .into_iter()
-                            .chain(names.iter().map(|x| x.0.as_str()))
-                            .collect::<Vec<&str>>(),
-                    );
-
-                    assert!(out.status.success(), "git rm shouldn't fail");
-                }
-            };
-        }
+        run_ops(path, ops);
 
         let mut expected = expected_index_entries(path);
         expected.sort_by(|left, right| left.path.cmp(&right.path));
