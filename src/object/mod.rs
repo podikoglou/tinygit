@@ -65,14 +65,6 @@ impl Encode for Object {
     }
 }
 
-impl Object {
-    pub fn encode_compressed<W: Write>(&self, writer: &mut W) -> Result<(), crate::TinygitError> {
-        let mut zlib_writer = ZlibEncoder::new(writer, Compression::default());
-
-        self.encode(&mut zlib_writer)
-    }
-}
-
 impl From<Blob> for Object {
     fn from(val: Blob) -> Self {
         Self::Blob(val)
