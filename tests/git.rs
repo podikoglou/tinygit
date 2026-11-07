@@ -11,7 +11,14 @@ use std::{
 };
 use strum::EnumDiscriminants;
 use tempfile::TempDir;
-use tinygit::storage::index::Index;
+use tinygit::storage::index::{Index, IndexEntry};
+use winnow::{
+    ModalResult, Parser,
+    ascii::{dec_uint, hex_digit1, hex_uint, oct_digit1},
+    combinator::{repeat, seq, terminated},
+    error::{ContextError, ErrMode},
+    token::{literal, take_until},
+};
 
 #[derive(Debug, Clone, TypeGenerator)]
 struct Name(#[generator(produce::<String>().with().len(1..=255).chars('A'..='z'))] String);
@@ -102,34 +109,160 @@ fn run_git(dir: &Path, args: &[&str]) -> Output {
         .expect("should be able to run git")
 }
 
+/// All the properties that `git ls-files --stage --debug` reports for an index entry.
+#[derive(Debug, PartialEq, Eq)]
+struct Entry {
+    path: String,
+    mode: u32,
+    hash: String,
+    ctime_seconds: u32,
+    ctime_ns_fractions: u32,
+    mtime_seconds: u32,
+    mtime_ns_fractions: u32,
+    dev: u32,
+    ino: u32,
+    uid: u32,
+    gid: u32,
+    file_size: u32,
+    flags: u16,
+}
+
+impl From<&IndexEntry> for Entry {
+    fn from(entry: &IndexEntry) -> Self {
+        let mode = (u32::from(u8::from(entry.mode.object_type())) << 12)
+            | u32::from(entry.mode.permission());
+        let flags = (u16::from(entry.flags.assume_valid()) << 15)
+            | (u16::from(entry.flags.extended()) << 14)
+            | (u16::from(entry.flags.stage()) << 12);
+
+        Self {
+            path: entry.path_name.to_string(),
+            mode,
+            hash: entry.hash.to_string(),
+            ctime_seconds: entry.ctime_seconds,
+            ctime_ns_fractions: entry.ctime_ns_fractions,
+            mtime_seconds: entry.mtime_seconds,
+            mtime_ns_fractions: entry.mtime_ns_fractions,
+            dev: entry.dev,
+            ino: entry.ino,
+            uid: entry.uid,
+            gid: entry.gid,
+            file_size: entry.file_size,
+            flags,
+        }
+    }
+}
+
+/// Parses the decimal unsigned integers that Git prints.
+fn decimal(input: &mut &[u8]) -> ModalResult<u32> {
+    dec_uint(input)
+}
+
+/// Parses the hexadecimal flags that Git prints.
+fn hexadecimal(input: &mut &[u8]) -> ModalResult<u16> {
+    hex_uint(input)
+}
+
+/// Parses a debug property of the form `  <name>: <value>\n`.
+fn property<'a, O>(
+    name: &'static str,
+    mut value: impl Parser<&'a [u8], O, ErrMode<ContextError>>,
+) -> impl Parser<&'a [u8], O, ErrMode<ContextError>> {
+    seq!(_: "  ", _: literal(name), _: ": ", value, _: "\n").map(|(value,)| value)
+}
+
+/// Parses a paired debug property of the form `  <left>: <value>\t<right>: <value>\n`.
+fn property_pair<'a, L, R>(
+    left: &'static str,
+    right: &'static str,
+    mut left_value: impl Parser<&'a [u8], L, ErrMode<ContextError>>,
+    mut right_value: impl Parser<&'a [u8], R, ErrMode<ContextError>>,
+) -> impl Parser<&'a [u8], (L, R), ErrMode<ContextError>> {
+    seq!(
+        _: "  ",
+        _: literal(left),
+        _: ": ",
+        left_value,
+        _: "\t",
+        _: literal(right),
+        _: ": ",
+        right_value,
+        _: "\n",
+    )
+}
+
+/// Parses a timestamp of the form `SECONDS:NANOSECONDS`.
+fn timestamp(input: &mut &[u8]) -> ModalResult<(u32, u32)> {
+    seq!(decimal, _: ":", decimal).parse_next(input)
+}
+
+/// Parses one entry from `git ls-files --stage --debug -z`.
+///
+/// The stage fields and the debug fields use different separators. The path is NUL-terminated,
+/// while all other fields are newline-terminated.
+fn entry(input: &mut &[u8]) -> ModalResult<Entry> {
+    let mode = terminated(oct_digit1, " ")
+        .map(str::from_utf8)
+        .verify_map(Result::ok)
+        .map(|mode| u32::from_str_radix(mode, 8))
+        .verify_map(Result::ok)
+        .parse_next(input)?;
+
+    let hash = terminated(hex_digit1, " ")
+        .map(str::from_utf8)
+        .verify_map(Result::ok)
+        .map(str::to_owned)
+        .parse_next(input)?;
+
+    let _stage = terminated(decimal, "\t").parse_next(input)?;
+
+    let path = terminated(take_until(0.., 0x00), 0x00)
+        .map(str::from_utf8)
+        .verify_map(Result::ok)
+        .map(str::to_owned)
+        .parse_next(input)?;
+
+    let (ctime_seconds, ctime_ns_fractions) = property("ctime", timestamp).parse_next(input)?;
+    let (mtime_seconds, mtime_ns_fractions) = property("mtime", timestamp).parse_next(input)?;
+
+    let (dev, ino) = property_pair("dev", "ino", decimal, decimal).parse_next(input)?;
+    let (uid, gid) = property_pair("uid", "gid", decimal, decimal).parse_next(input)?;
+    let (file_size, flags) =
+        property_pair("size", "flags", decimal, hexadecimal).parse_next(input)?;
+
+    Ok(Entry {
+        path,
+        mode,
+        hash,
+        ctime_seconds,
+        ctime_ns_fractions,
+        mtime_seconds,
+        mtime_ns_fractions,
+        dev,
+        ino,
+        uid,
+        gid,
+        file_size,
+        flags,
+    })
+}
+
 /// Ask the real Git implementation what the index contains.
-fn expected_index_entries(dir: &Path) -> Vec<(String, u32)> {
-    let out = run_git(dir, &["ls-files", "--debug", "-z"]);
+fn expected_index_entries(dir: &Path) -> Vec<Entry> {
+    let out = run_git(dir, &["ls-files", "--stage", "--debug", "-z"]);
 
     assert!(out.status.success(), "git ls-files shouldn't fail");
 
-    // `-z` terminates each path with NUL, but the debug fields stay newline-terminated.
-    // Generated names cannot contain NUL or newline, so replacing NUL with newline gives
-    // one path line followed by its debug lines.
-    let output = String::from_utf8_lossy(&out.stdout).replace('\0', "\n");
+    let mut input = out.stdout.as_slice();
 
-    let mut entries = Vec::default();
-    let mut path = None;
+    let entries = repeat(0.., entry)
+        .parse_next(&mut input)
+        .expect("git ls-files output should be valid");
 
-    for line in output.lines() {
-        if let Some(size) = line.strip_prefix("  size: ") {
-            let size = size
-                .split_whitespace()
-                .next()
-                .expect("size should have a value")
-                .parse::<u32>()
-                .expect("size should be a number");
-
-            entries.push((path.take().expect("size should follow a path"), size));
-        } else if !line.starts_with("  ") {
-            path = Some(line.to_owned());
-        }
-    }
+    assert!(
+        input.is_empty(),
+        "git ls-files output should be fully consumed"
+    );
 
     entries
 }
@@ -171,7 +304,7 @@ fn fuzz_index_parsing() {
         }
 
         let mut expected = expected_index_entries(path);
-        expected.sort();
+        expected.sort_by(|left, right| left.path.cmp(&right.path));
 
         let index_path = path.join(".git/index");
 
@@ -184,13 +317,8 @@ fn fuzz_index_parsing() {
         let index = Index::open(index_path).expect("should be able to parse index");
 
         // assert entries correctness
-        let mut parsed: Vec<(String, u32)> = index
-            .entries
-            .iter()
-            .map(|entry| (entry.path_name.to_string(), entry.file_size))
-            .collect();
-
-        parsed.sort();
+        let mut parsed: Vec<Entry> = index.entries.iter().map(Entry::from).collect();
+        parsed.sort_by(|left, right| left.path.cmp(&right.path));
 
         assert_eq!(parsed, expected);
     });
