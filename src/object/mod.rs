@@ -96,13 +96,6 @@ impl TryFrom<LazyObject> for Object {
     }
 }
 
-/// Parses an [Object] from some bytes.
-///
-/// Unless you're building your own parsers this is the function you're looking for.
-pub fn parse_object(input: &[u8], context: ParserContext) -> Result<Object, TinygitError> {
-    object.parse(Stream::new(input)).with_context(context)
-}
-
 /// Parses an [Object] from some input.
 pub fn object<'a>(input: &mut Stream<'a>) -> ModalResult<Object> {
     let (typee, size) = parse_header.parse_next(input)?;
