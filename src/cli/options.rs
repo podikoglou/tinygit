@@ -2,7 +2,7 @@ use argh::FromArgs;
 use tinygit::TinygitError;
 
 use crate::cli::commands::{
-    hash_object::HashObjectCommand, index_pack::IndexPackCommand, log::LogCommand,
+    add::AddCommand, hash_object::HashObjectCommand, index_pack::IndexPackCommand, log::LogCommand,
     ls_buckets::LsBucketsCommand, ls_objects::LsObjectsCommand, parse_object::ParseObjectCommand,
     parse_pack::ParsePackCommand, unpack_objects::UnpackObjectsCommand,
 };
@@ -25,6 +25,7 @@ pub enum Subcommand {
     UnpackObjects(UnpackObjectsCommand),
     Log(LogCommand),
     IndexPack(IndexPackCommand),
+    AddCommand(AddCommand),
 }
 
 impl Args {
@@ -38,6 +39,7 @@ impl Args {
             Subcommand::UnpackObjects(cmd) => cmd.run(),
             Subcommand::Log(cmd) => cmd.run(),
             Subcommand::IndexPack(cmd) => cmd.run(),
+            Subcommand::AddCommand(cmd) => cmd.run(),
         }
     }
 }
