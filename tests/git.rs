@@ -84,8 +84,7 @@ fn fuzz_index_parsing() {
         for op in ops.clone().into_inner() {
             match op {
                 Op::Create(name, contents) => {
-                    fs::write(path.join(&name.0), contents)
-                        .expect("should be able to write file");
+                    fs::write(path.join(&name.0), contents).expect("should be able to write file");
                 }
                 Op::GitAdd(names) => {
                     run_git(
@@ -106,10 +105,12 @@ fn fuzz_index_parsing() {
             };
         }
 
-        // `git init` does not create an index, so only parse one if a `git add` created it.
         let index_path = path.join(".git/index");
-        if index_path.exists() {
-            Index::open(index_path).expect("should be able to parse index");
+
+        if !index_path.exists() {
+            return;
         }
+
+        Index::open(index_path).expect("should be able to parse index");
     });
 }
