@@ -172,8 +172,7 @@ impl Encode for UndeltifiedObject {
 
         header.encode(writer)?;
 
-        let compressed_buf: Vec<u8> = Vec::default();
-        let mut encoder = ZlibEncoder::new(compressed_buf, Compression::default());
+        let mut encoder = ZlibEncoder::new(writer, Compression::default());
 
         // NOTE: This bypasses the `RawObject` `Encode` implementation, because that is meant for
         // loose objects which have a different format. perhaps this is a bad API.
@@ -181,9 +180,7 @@ impl Encode for UndeltifiedObject {
         // depending on the way you want to encode it.
         encoder.write_all(&raw_object.bytes)?;
 
-        let compressed_buf = encoder.finish()?;
-
-        writer.write_all(&compressed_buf)?;
+        encoder.finish()?;
 
         Ok(())
     }
