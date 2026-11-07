@@ -4,14 +4,39 @@ pub mod bucket;
 pub mod db;
 
 pub use db::LooseDb;
+use nutype::nutype;
 
 use crate::{
     TinygitError,
+    ende::Encode,
     error::ParserContext,
-    object::{Object, parse_object},
+    object::{Object, ObjectType, parse_object},
+    storage::object::RawObject,
 };
 use flate2::read::ZlibDecoder;
-use std::io::{BufRead, Read};
+use std::io::{BufRead, Read, prelude::Write};
+
+#[nutype(derive(Debug, PartialEq, AsRef))]
+pub struct LooseObject(RawObject);
+
+impl Encode for LooseObject {
+    fn encode<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
+        let raw = self.as_ref();
+
+        match raw.r#type {
+            ObjectType::Blob => write!(writer, "blob"),
+            ObjectType::Tree => write!(writer, "tree"),
+            ObjectType::Commit => write!(writer, "commit"),
+            ObjectType::Tag => write!(writer, "tag"),
+        }?;
+
+        write!(writer, " {}\0", raw.bytes.len())?;
+
+        writer.write_all(&raw.bytes)?;
+
+        Ok(())
+    }
+}
 
 /// Reads and parses an [Object] from a [`Read`].
 ///
