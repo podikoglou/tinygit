@@ -328,3 +328,35 @@ fn fuzz_index_parsing() {
         assert_eq!(parsed, expected);
     });
 }
+
+/// This test parses Git's index with tinygit, writes it back, and asserts that the result is
+/// byte-for-byte identical to Git's index.
+#[test]
+fn fuzz_index_roundtrip() {
+    check!().with_type::<Sequence>().for_each(|ops| {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path();
+
+        run_ops(path, ops);
+
+        let index_path = path.join(".git/index");
+
+        if !index_path.exists() {
+            return;
+        }
+
+        // read Git's index before parsing, because `Index::write` truncates the file in place.
+        let original = fs::read(&index_path).expect("should be able to read Git's index");
+
+        let index = Index::open(index_path.clone()).expect("Git's index should parse");
+
+        index.write().expect("tinygit should re-encode the index");
+
+        let rewritten = fs::read(&index_path).expect("should be able to read tinygit's index");
+
+        assert_eq!(
+            original, rewritten,
+            "tinygit's index should be byte-identical to Git's"
+        );
+    });
+}
