@@ -1,5 +1,6 @@
 ---
 source: tests/loose.rs
+assertion_line: 79
 expression: object
 ---
 Commit(
