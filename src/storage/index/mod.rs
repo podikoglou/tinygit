@@ -1,6 +1,6 @@
 use std::{
-    fs::File,
-    io::{BufWriter, prelude::Write},
+    fs::{self, File},
+    io::{BufWriter, ErrorKind, prelude::Write},
     path::PathBuf,
 };
 
@@ -50,10 +50,18 @@ impl Index {
         })
     }
 
-    pub fn write(&self) -> Result<(), TinygitError> {
-        let file = File::create(&self.path)?;
+    /// Tries to write to the index by acquiring the `index.lock`, fails if it's already being held.
+    pub fn try_write(&self) -> Result<(), TinygitError> {
+        // acquire the lock file
+        let lock_file = File::create_new(self.lock_path()).map_err(|err| {
+            if err.kind() == ErrorKind::AlreadyExists {
+                TinygitError::LockHeld
+            } else {
+                err.into()
+            }
+        })?;
 
-        let mut writer = HashingWriter::new(file);
+        let mut writer = HashingWriter::new(lock_file);
 
         self.header.encode(&mut writer)?;
 
@@ -65,7 +73,14 @@ impl Index {
 
         writer.write_all(&hash)?;
 
+        // written to the lock, we can now move that to the actual index file
+        fs::rename(self.lock_path(), &self.path)?;
+
         Ok(())
+    }
+
+    pub fn lock_path(&self) -> PathBuf {
+        self.path.with_extension("lock")
     }
 }
 

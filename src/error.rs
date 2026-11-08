@@ -138,4 +138,7 @@ pub enum TinygitError {
 
     #[error("Invalid flag : {0}")]
     InvalidFlag(&'static str),
+
+    #[error("Lock is already beind held")]
+    LockHeld,
 }
