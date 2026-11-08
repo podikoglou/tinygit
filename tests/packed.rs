@@ -1,5 +1,4 @@
-use std::assert_matches;
-use std::fs::File;
+use std::{assert_matches, fs::File, path::Path};
 
 use fallible_iterator::FallibleIterator;
 use insta::assert_debug_snapshot;
@@ -198,6 +197,64 @@ fn idx_read() {
                 .expect("should parse hash"),
         ),
         Some(12)
+    );
+}
+
+/// Asserts that a packfile is consistent with its index: for every ID the index
+/// reports, reading and fully resolving the matching object from the packfile must
+/// hash back to that same ID.
+///
+/// The index IDs come from git itself, so this pins the exact bytes (type included,
+/// since the type is part of the hashed header) of every object in the pack.
+fn assert_pack_consistent_with_index(pack_path: &Path) {
+    let idx_path = pack_path.with_extension("idx");
+
+    let idx = PackIndex::open(idx_path.clone())
+        .unwrap_or_else(|error| panic!("should be able to open pack idx file: {error}"));
+
+    let packfile = Packfile::open(pack_path.to_owned(), idx_path)
+        .expect("should be able to open packfile");
+
+    assert!(
+        !idx.object_names.is_empty(),
+        "pack index should list at least one object"
+    );
+
+    for name in &idx.object_names {
+        let raw = packfile.raw_object(name).expect(
+            "should be able to read and resolve object listed in the pack index",
+        );
+
+        let hash = raw.hash().expect("should be able to hash raw object");
+
+        assert_eq!(
+            hash, *name,
+            "resolved object must hash back to the ID its index entry reports"
+        );
+    }
+}
+
+#[test]
+fn pack_index_consistency() {
+    let (_, dir) = include_repo!("fixtures/repos/repo-5.tar");
+
+    assert_pack_consistent_with_index(
+        &dir.path()
+            .join(".git/objects/pack/pack-a0ba98959a3d422d8bbe8e86f2cf62eb8f2b2df7.pack"),
+    );
+
+    let (_, dir) = include_repo!("fixtures/repos/repo-6.tar");
+
+    assert_pack_consistent_with_index(
+        &dir.path()
+            .join(".git/objects/pack/pack-c7e64c7164f8f92168a1ce0953f0716848c2c32c.pack"),
+    );
+
+    let (_, dir) = include_repo!("fixtures/repos/repo-7.tar");
+
+    assert_pack_consistent_with_index(
+        &dir.path()
+            .join(".git/objects/pack/pack-c810c1b92e401673d07ba82467562a599f53e298.pack"),
     );
 }
 
