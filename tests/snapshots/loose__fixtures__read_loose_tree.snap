@@ -1,5 +1,6 @@
 ---
 source: tests/loose.rs
+assertion_line: 40
 expression: object
 ---
 Tree(

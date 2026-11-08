@@ -8,7 +8,7 @@ use tinygit::{
     object::{commit::Commit, parse_header, tag::Tag, tree::Tree},
     parsing::Stream,
     storage::object::{
-        loose::{read_object, read_object_compressed},
+        loose::CompressedLooseObject,
         packed::{
             DeltifiedObject, PackedObject, PackedObjectHeader, PackedObjectType, PackfileHeader,
             UndeltifiedObject, base_object,
@@ -26,11 +26,18 @@ use winnow::Parser;
 #[test]
 fn fuzz_read_loose_object() {
     check!().for_each(|input: &[u8]| {
-        if let Ok(object) = read_object(input, ParserContext::None) {
+        if let Ok(object) =
+            CompressedLooseObject::decode_bytes_with_context(input, ParserContext::None)
+        {
             let mut serialized = Vec::new();
+
             if object.encode(&mut serialized).is_ok() {
-                let roundtripped = read_object(&serialized[..], ParserContext::None)
-                    .expect("roundtripped object should parse successfully");
+                let roundtripped = CompressedLooseObject::decode_bytes_with_context(
+                    &serialized[..],
+                    ParserContext::None,
+                )
+                .expect("roundtripped object should parse successfully");
+
                 assert_eq!(object, roundtripped);
             }
         }
@@ -42,7 +49,7 @@ fn fuzz_read_loose_object() {
 #[test]
 fn fuzz_read_loose_object_compressed() {
     check!().for_each(|input: &[u8]| {
-        let _ = read_object_compressed(input, ParserContext::None);
+        let _ = CompressedLooseObject::decode_bytes_with_context(input, ParserContext::None);
     });
 }
 

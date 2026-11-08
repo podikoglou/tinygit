@@ -3,6 +3,7 @@ use std::{fmt::Debug, io::Write};
 use flate2::{Compression, write::ZlibEncoder};
 use humansize::{DECIMAL, format_size};
 use sha1::{Digest, Sha1};
+use strum::IntoDiscriminant;
 use winnow::Parser;
 
 use crate::{
@@ -13,7 +14,10 @@ use crate::{
         Object, ObjectType, blob::Blob, commit::Commit, hash::ObjectHash, tag::Tag, tree::Tree,
     },
     parsing::{ParseNextExt, Stream},
-    storage::object::packed::delta::{CopyInstruction, Delta, InsertInstruction, Instruction},
+    storage::object::{
+        loose::{CompressedLooseObject, LooseObject},
+        packed::delta::{CopyInstruction, Delta, InsertInstruction, Instruction},
+    },
 };
 
 /// An object that has not been parsed yet.
@@ -50,10 +54,11 @@ impl RawObject {
     }
 
     /// Computes the hash of the object.
-    pub fn hash(&self) -> Result<ObjectHash, TinygitError> {
+    pub fn hash(self) -> Result<ObjectHash, TinygitError> {
+        // this encodes the objet to a temporary buffer, slow
         let mut buf = Vec::new(); // TODO: capacity
 
-        self.encode(&mut buf)?;
+        LooseObject::new(self).encode(&mut buf)?;
 
         Ok(Sha1::digest(buf).into())
     }
@@ -77,26 +82,14 @@ impl RawObject {
     }
 
     pub fn encode_compressed<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
-        let mut zlib_writer = ZlibEncoder::new(writer, Compression::default());
+        let compressed = CompressedLooseObject::new(LooseObject::new(self.clone()));
 
-        self.encode(&mut zlib_writer)
+        compressed.encode(writer)
     }
 }
 
 impl Encode for RawObject {
     fn encode<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
-        write!(
-            writer,
-            "{} {}\0",
-            match self.r#type {
-                ObjectType::Blob => "blob",
-                ObjectType::Tree => "tree",
-                ObjectType::Commit => "commit",
-                ObjectType::Tag => "tag",
-            },
-            self.bytes.len()
-        )?;
-
         writer.write_all(&self.bytes)?;
 
         Ok(())
@@ -111,5 +104,17 @@ impl Debug for RawObject {
             self.r#type,
             format_size(self.bytes.len(), DECIMAL)
         )
+    }
+}
+
+impl TryFrom<Object> for RawObject {
+    type Error = TinygitError;
+
+    fn try_from(value: Object) -> Result<Self, Self::Error> {
+        let mut buf = Vec::default();
+
+        value.encode(&mut buf)?;
+
+        Ok(Self::new(value.discriminant(), buf))
     }
 }

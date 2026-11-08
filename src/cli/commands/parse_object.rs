@@ -5,8 +5,15 @@ use std::{
 };
 
 use argh::FromArgs;
-use tinygit::error::ParserContext;
-use tinygit::{TinygitError, storage::object::loose::read_object_compressed};
+use tinygit::{
+    TinygitError,
+    ende::{Decode, Encode},
+    storage::object::loose::CompressedLooseObject,
+};
+use tinygit::{
+    error::ParserContext,
+    storage::object::{RawObject, loose::LooseObject},
+};
 
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "parse-object")]
@@ -57,7 +64,9 @@ impl ParseObjectCommand {
                     .map(|path| fs::read(&path).map(|bytes| (bytes, ParserContext::File(path)))),
             )
             .map(|contents| match contents {
-                Ok((bytes, context)) => read_object_compressed(bytes.as_slice(), context),
+                Ok((bytes, context)) => {
+                    CompressedLooseObject::decode_bytes_with_context(bytes.as_slice(), context)
+                }
                 Err(err) => Err(TinygitError::from(err)),
             });
 
@@ -67,7 +76,7 @@ impl ParseObjectCommand {
                     true => {
                         let mut stdout = io::stdout();
 
-                        object.encode_compressed(&mut stdout)?;
+                        object.encode(&mut stdout)?;
                     }
                     false => println!("{object:#?}"),
                 },

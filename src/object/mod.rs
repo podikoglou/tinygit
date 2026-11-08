@@ -28,7 +28,7 @@ use crate::{
     error::ParserContext,
     object::hash::ObjectHash,
     parsing::{ParseResultExt, Stream},
-    storage::object::LazyObject,
+    storage::object::{LazyObject, RawObject},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, EnumDiscriminants, EnumIs, EnumTryAs)]
@@ -45,54 +45,20 @@ pub enum Object {
 
 impl Object {
     /// Creates a SHA1 hash of the object.
-    pub fn hash(&self) -> Result<ObjectHash, TinygitError> {
-        let mut buf = Vec::new();
-        self.encode(&mut buf)?;
-
-        Ok(Sha1::digest(buf).into())
+    pub fn hash(self) -> Result<ObjectHash, TinygitError> {
+        RawObject::try_from(self)?.hash()
     }
 }
 
 impl Encode for Object {
     /// Writes the uncompressed object to a write.
     fn encode<W: Write>(&self, writer: &mut W) -> Result<(), crate::TinygitError> {
-        let mut buf: Vec<u8> = Vec::new();
-
         match self {
-            Self::Blob(blob) => {
-                write!(writer, "blob ")?;
-
-                blob.encode(&mut buf)?;
-            }
-            Self::Tree(tree) => {
-                write!(writer, "tree ")?;
-
-                tree.encode(&mut buf)?;
-            }
-            Self::Commit(commit) => {
-                write!(writer, "commit ")?;
-
-                commit.encode(&mut buf)?;
-            }
-            Self::Tag(tag) => {
-                write!(writer, "tag ")?;
-
-                tag.encode(&mut buf)?;
-            }
+            Self::Blob(blob) => blob.encode(writer),
+            Self::Tree(tree) => tree.encode(writer),
+            Self::Commit(commit) => commit.encode(writer),
+            Self::Tag(tag) => tag.encode(writer),
         }
-
-        write!(writer, "{}\0", buf.len())?;
-        writer.write_all(&buf)?;
-
-        Ok(())
-    }
-}
-
-impl Object {
-    pub fn encode_compressed<W: Write>(&self, writer: &mut W) -> Result<(), crate::TinygitError> {
-        let mut zlib_writer = ZlibEncoder::new(writer, Compression::default());
-
-        self.encode(&mut zlib_writer)
     }
 }
 
@@ -125,13 +91,6 @@ impl TryFrom<LazyObject> for Object {
     fn try_from(value: LazyObject) -> Result<Self, Self::Error> {
         value.into_object()
     }
-}
-
-/// Parses an [Object] from some bytes.
-///
-/// Unless you're building your own parsers this is the function you're looking for.
-pub fn parse_object(input: &[u8], context: ParserContext) -> Result<Object, TinygitError> {
-    object.parse(Stream::new(input)).with_context(context)
 }
 
 /// Parses an [Object] from some input.
