@@ -29,7 +29,10 @@ impl AddCommand {
             let object = Object::Blob(Blob(bytes));
             let raw_object: RawObject = object.try_into()?;
 
-            repo.store.encode_object(&raw_object)?;
+            match repo.store.encode_object(&raw_object) {
+                Err(TinygitError::ObjectExists) => {}
+                other => other?,
+            };
         }
 
         Ok(())
