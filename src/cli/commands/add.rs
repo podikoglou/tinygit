@@ -1,10 +1,19 @@
-use std::{env, fs, path::PathBuf};
+use std::{
+    env, fs,
+    os::unix::fs::{MetadataExt, PermissionsExt},
+    path::PathBuf,
+    time::SystemTime,
+};
 
 use argh::FromArgs;
+use bstr::{BStr, BString};
 use tinygit::{
     Repo, TinygitError,
     object::{Object, blob::Blob},
-    storage::object::RawObject,
+    storage::{
+        index::{Flags, IndexEntry, Mode, ObjectType},
+        object::RawObject,
+    },
 };
 
 #[derive(FromArgs, PartialEq, Debug)]
@@ -25,14 +34,68 @@ impl AddCommand {
         }
 
         for path in self.files {
-            let bytes = fs::read(path)?;
+            // TODO: this has to be relative to the repo's root
+            let path_name = &path
+                .file_name()
+                .map(|s| BString::from(s.to_string_lossy().as_bytes()))
+                .ok_or(TinygitError::InvalidFileName)?;
+
+            let bytes = fs::read(&path)?;
             let object = Object::Blob(Blob(bytes));
             let raw_object: RawObject = object.try_into()?;
 
+            // create blob
             match repo.store.encode_object(&raw_object) {
                 Err(TinygitError::ObjectExists) => {}
                 other => other?,
             };
+
+            // get the metadata for the entry (before we even open the index, so as to keep the
+            // critical section as short as possible)
+            let metadata = fs::metadata(&path)?;
+            let ctime = metadata.created()?.duration_since(SystemTime::UNIX_EPOCH)?;
+            let mtime = metadata
+                .modified()?
+                .duration_since(SystemTime::UNIX_EPOCH)?;
+
+            // TODO: support `ObjectType::GitLink`
+            let object_type = if metadata.is_symlink() {
+                ObjectType::SymbolicLink
+            } else {
+                ObjectType::Regular
+            };
+
+            let permissions = (metadata.permissions().mode() >> 6) & 0b0111;
+            // TODO: should we assert it's 755 or 644, as git says it's only one of these for
+            // regular files? and if so, should we assert it here or in `Mode::try_new`?
+
+            let name_length = if path_name.len() > 0xFFF {
+                0xFFF
+            } else {
+                path_name.len() as u16
+            };
+
+            let mut index = repo.store.index()?;
+
+            // if it already exists in the index, remove it
+            index.entries.retain(|entry| &entry.path_name != path_name);
+
+            // add the new entry
+            index.entries.push(IndexEntry {
+                ctime_seconds: ctime.as_secs().try_into()?,
+                ctime_ns_fractions: ctime.subsec_nanos(),
+                mtime_seconds: mtime.as_secs().try_into()?,
+                mtime_ns_fractions: mtime.subsec_nanos(),
+                dev: metadata.dev().try_into()?,
+                ino: metadata.ino().try_into()?,
+                mode: Mode::try_new(object_type, permissions as u16)?,
+                uid: metadata.uid(),
+                gid: metadata.gid(),
+                file_size: metadata.size().try_into()?,
+                hash: raw_object.hash()?,
+                flags: Flags::try_new(false, false, 0, name_length)?,
+                path_name: path_name.to_owned(),
+            });
         }
 
         Ok(())

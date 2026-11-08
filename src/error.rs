@@ -2,7 +2,9 @@ use std::{
     error::Error,
     fmt::{self, Display},
     io,
+    num::TryFromIntError,
     path::PathBuf,
+    time::SystemTimeError,
 };
 
 use hex::FromHexError;
@@ -80,6 +82,12 @@ impl ParseError {
 pub enum TinygitError {
     #[error("IO Error: {0}")]
     IO(#[from] io::Error),
+
+    #[error("Couldn't convert int: {0}")]
+    TryFromInt(#[from] TryFromIntError),
+
+    #[error("System time error: {0}")]
+    SystemTime(#[from] SystemTimeError),
 
     #[error("Invalid file name")]
     InvalidFileName,
