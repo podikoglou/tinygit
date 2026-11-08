@@ -39,6 +39,19 @@ pub struct Index {
 }
 
 impl Index {
+    /// Creates a new empty [Index] at `path`. Equivalent to Git reading a missing index file.
+    pub fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            header: IndexHeader {
+                version: VERSION,
+                entries: 0,
+            },
+            hash: ObjectHash::default(),
+            entries: Vec::default(),
+        }
+    }
+
     pub fn open(path: PathBuf) -> Result<Self, TinygitError> {
         let (header, entries, hash) =
             <(IndexHeader, Vec<IndexEntry>, ObjectHash)>::decode_file(&path)?;

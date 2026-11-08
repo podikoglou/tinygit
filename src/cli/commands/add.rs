@@ -11,7 +11,7 @@ use tinygit::{
     Repo, TinygitError,
     object::{Object, blob::Blob},
     storage::{
-        index::{Flags, IndexEntry, Mode, ObjectType},
+        index::{Flags, Index, IndexEntry, Mode, ObjectType},
         object::RawObject,
     },
 };
@@ -76,7 +76,13 @@ impl AddCommand {
                 path_name.len() as u16
             };
 
-            let mut index = repo.store.index()?;
+            // Git treats a missing index file as an empty index.
+            let index_path = repo.store.index_path();
+            let mut index = if index_path.exists() {
+                repo.store.index()?
+            } else {
+                Index::new(index_path)
+            };
 
             // if it already exists in the index, remove it
             index.entries.retain(|entry| &entry.path_name != path_name);
