@@ -219,7 +219,9 @@ mod roundtrip {
     use tinygit::object::{Object, ObjectType, hash::ObjectHash, tag::Tag};
 
     use tinygit::ende::Encode;
-    use tinygit::storage::object::loose::CompressedLooseObject;
+    use tinygit::storage::object::{RawObject, loose::CompressedLooseObject, loose::LooseObject};
+
+    use strum::IntoDiscriminant;
 
     mod generators {
         use crate::roundtrip::generators;
@@ -462,8 +464,16 @@ mod roundtrip {
             String::new(),
         ));
 
+        let mut raw = Vec::new();
+        object.encode(&mut raw).unwrap();
+
         let mut buf = Vec::new();
-        object.encode(&mut buf).unwrap();
+        CompressedLooseObject::new(LooseObject::new(RawObject::new(
+            object.discriminant(),
+            raw,
+        )))
+        .encode(&mut buf)
+        .unwrap();
 
         let raw = CompressedLooseObject::decode_bytes(&buf)
             .unwrap()
