@@ -350,7 +350,9 @@ fn fuzz_index_roundtrip() {
 
         let index = Index::open(index_path.clone()).expect("Git's index should parse");
 
-        index.write().expect("tinygit should re-encode the index");
+        index
+            .try_write()
+            .expect("tinygit should re-encode the index");
 
         let rewritten = fs::read(&index_path).expect("should be able to read tinygit's index");
 
