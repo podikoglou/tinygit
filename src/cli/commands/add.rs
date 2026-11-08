@@ -97,6 +97,8 @@ impl AddCommand {
                 flags: Flags::try_new(false, false, 0, name_length)?,
                 path_name: path_name.to_owned(),
             });
+
+            index.try_write()?;
         }
 
         Ok(())
