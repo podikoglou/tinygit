@@ -8,6 +8,7 @@ use nutype::nutype;
 use winnow::{
     Parser,
     error::{ContextError, ErrMode, FromExternalError as _},
+    token::rest,
 };
 
 use crate::{
@@ -73,7 +74,9 @@ impl Encode for CompressedLooseObject {
 
 impl Decode for CompressedLooseObject {
     fn parse(input: &mut Stream<'_>) -> winnow::prelude::ModalResult<Self> {
-        let mut decoder = ZlibDecoder::new(&input[..]);
+        let bytes = rest.parse_next(input)?;
+
+        let mut decoder = ZlibDecoder::new(bytes);
 
         let mut buf = Vec::new();
 
