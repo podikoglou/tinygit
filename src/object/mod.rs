@@ -28,7 +28,7 @@ use crate::{
     error::ParserContext,
     object::hash::ObjectHash,
     parsing::{ParseResultExt, Stream},
-    storage::object::LazyObject,
+    storage::object::{LazyObject, RawObject},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, EnumDiscriminants, EnumIs, EnumTryAs)]
@@ -45,11 +45,8 @@ pub enum Object {
 
 impl Object {
     /// Creates a SHA1 hash of the object.
-    pub fn hash(&self) -> Result<ObjectHash, TinygitError> {
-        let mut buf = Vec::new();
-        self.encode(&mut buf)?;
-
-        Ok(Sha1::digest(buf).into())
+    pub fn hash(self) -> Result<ObjectHash, TinygitError> {
+        RawObject::try_from(self)?.hash()
     }
 }
 

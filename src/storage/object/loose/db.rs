@@ -90,7 +90,7 @@ impl LooseDb {
 
     /// Writes a [`RawObject`] to the loose object database.
     pub fn encode_object(&self, object: &RawObject) -> Result<(), TinygitError> {
-        let hash = object.hash()?;
+        let hash = object.clone().hash()?;
         let prefix = hash.prefix();
 
         let bucket_path = self.path.join(prefix.to_string());

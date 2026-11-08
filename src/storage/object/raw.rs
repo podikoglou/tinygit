@@ -14,7 +14,10 @@ use crate::{
         Object, ObjectType, blob::Blob, commit::Commit, hash::ObjectHash, tag::Tag, tree::Tree,
     },
     parsing::{ParseNextExt, Stream},
-    storage::object::packed::delta::{CopyInstruction, Delta, InsertInstruction, Instruction},
+    storage::object::{
+        loose::{CompressedLooseObject, LooseObject},
+        packed::delta::{CopyInstruction, Delta, InsertInstruction, Instruction},
+    },
 };
 
 /// An object that has not been parsed yet.
@@ -51,10 +54,11 @@ impl RawObject {
     }
 
     /// Computes the hash of the object.
-    pub fn hash(&self) -> Result<ObjectHash, TinygitError> {
+    pub fn hash(self) -> Result<ObjectHash, TinygitError> {
+        // this encodes the objet to a temporary buffer, slow
         let mut buf = Vec::new(); // TODO: capacity
 
-        self.encode(&mut buf)?;
+        LooseObject::new(self).encode(&mut buf)?;
 
         Ok(Sha1::digest(buf).into())
     }
@@ -78,9 +82,9 @@ impl RawObject {
     }
 
     pub fn encode_compressed<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
-        let mut zlib_writer = ZlibEncoder::new(writer, Compression::default());
+        let compressed = CompressedLooseObject::new(LooseObject::new(self.clone()));
 
-        self.encode(&mut zlib_writer)
+        compressed.encode(writer)
     }
 }
 
