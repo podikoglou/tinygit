@@ -1,4 +1,8 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 
 use once_cell::sync::OnceCell;
 
@@ -11,6 +15,7 @@ use crate::{
         hash::{HashPrefix, ObjectHash},
     },
     storage::{
+        index::Index,
         object::{LazyObject, LooseDb, ObjectDb, ObjectsBucket, RawObject, packed::Packfile},
         reference::{Ref, RefName, RefPointer, db::RefsDb},
     },
@@ -76,6 +81,11 @@ impl Store {
     #[must_use]
     pub fn packed_refs_path(&self) -> PathBuf {
         self.path.join("packed-refs")
+    }
+
+    #[must_use]
+    pub fn index_path(&self) -> PathBuf {
+        self.path.join("index")
     }
 
     /// Returns all buckets (directories named after the prefix of a hash) under `.git/objects/`.
@@ -230,6 +240,14 @@ impl Store {
                     .ok_or(TinygitError::UnexpectedObjectType)
                     .map(|commit| (*commit, hash))
             })
+    }
+
+    /// Reads the [Index].
+    ///
+    /// For the sake of doing less bookkeeeping (like trying to keep the index up to date), we don't
+    /// store the index in the Store. Instead, it is dynamically read every time this is called.
+    pub fn index(&self) -> Result<Index, TinygitError> {
+        Index::open(self.index_path())
     }
 }
 
