@@ -52,22 +52,23 @@ impl AddCommand {
 
             // get the metadata for the entry (before we even open the index, so as to keep the
             // critical section as short as possible)
-            let metadata = fs::metadata(&path)?;
+            let metadata = fs::symlink_metadata(&path)?;
             let ctime = metadata.created()?.duration_since(SystemTime::UNIX_EPOCH)?;
             let mtime = metadata
                 .modified()?
                 .duration_since(SystemTime::UNIX_EPOCH)?;
 
             // TODO: support `ObjectType::GitLink`
-            let object_type = if metadata.is_symlink() {
-                ObjectType::SymbolicLink
+            let mode = if metadata.is_symlink() {
+                Mode::try_new(ObjectType::SymbolicLink, 0)
             } else {
-                ObjectType::Regular
-            };
+                let is_executable = (metadata.permissions().mode() & 0o100) != 0;
 
-            let permissions = (metadata.permissions().mode() >> 6) & 0b0111;
-            // TODO: should we assert it's 755 or 644, as git says it's only one of these for
-            // regular files? and if so, should we assert it here or in `Mode::try_new`?
+                Mode::try_new(
+                    ObjectType::Regular,
+                    if is_executable { 0o755 } else { 0o644 },
+                )
+            }?;
 
             let name_length = if path_name.len() > 0xFFF {
                 0xFFF
@@ -88,7 +89,7 @@ impl AddCommand {
                 mtime_ns_fractions: mtime.subsec_nanos(),
                 dev: metadata.dev().try_into()?,
                 ino: metadata.ino().try_into()?,
-                mode: Mode::try_new(object_type, permissions as u16)?,
+                mode,
                 uid: metadata.uid(),
                 gid: metadata.gid(),
                 file_size: metadata.size().try_into()?,
