@@ -49,6 +49,14 @@ impl Ref {
     pub fn is_peeled(&self) -> bool {
         self.peeled.is_some()
     }
+
+    /// Returns the name with the `refs/heads/` prefix stripped
+    pub fn stripped_name(&self) -> String {
+        self.name
+            .strip_prefix("refs/heads/")
+            .unwrap_or_else(|| &self.name)
+            .to_string()
+    }
 }
 
 impl Decode for RefPointer {
