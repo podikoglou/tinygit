@@ -116,9 +116,6 @@ pub enum TinygitError {
     #[error("Unexpected object type")]
     UnexpectedObjectType,
 
-    #[error("Invalid HEAD")]
-    InvalidHead,
-
     #[error("Unexpected object type")]
     UnexpectedType,
 
