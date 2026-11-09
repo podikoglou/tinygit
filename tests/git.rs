@@ -2,6 +2,7 @@
 //! the real Git implementation, and we check against tinygit.
 
 use bolero::{TypeGenerator, ValueGenerator, check, one_value_of, produce};
+use git2::Repository;
 use nutype::nutype;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -12,13 +13,6 @@ use std::{
 use strum::EnumDiscriminants;
 use tempfile::TempDir;
 use tinygit::storage::index::{Index, IndexEntry};
-use winnow::{
-    ModalResult, Parser,
-    ascii::{dec_uint, hex_digit1, hex_uint, oct_digit1},
-    combinator::{repeat, seq, terminated},
-    error::{ContextError, ErrMode},
-    token::{literal, take_until},
-};
 
 #[derive(Debug, Clone, TypeGenerator)]
 struct Name(#[generator(produce::<String>().with().len(1..=255).chars('A'..='z'))] String);
@@ -165,15 +159,7 @@ fn run_tinygit(dir: &Path, args: &[&str]) -> Output {
         .expect("should be able to run tinygit")
 }
 
-fn run_git(dir: &Path, args: &[&str]) -> Output {
-    Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .expect("should be able to run git")
-}
-
-/// All the properties that `git ls-files --stage --debug` reports for an index entry.
+/// All the properties that libgit2 reports for an index entry.
 #[derive(Debug, PartialEq, Eq)]
 struct Entry {
     path: String,
@@ -197,7 +183,8 @@ impl From<&IndexEntry> for Entry {
             | u32::from(entry.mode.permission());
         let flags = (u16::from(entry.flags.assume_valid()) << 15)
             | (u16::from(entry.flags.extended()) << 14)
-            | (u16::from(entry.flags.stage()) << 12);
+            | (u16::from(entry.flags.stage()) << 12)
+            | entry.flags.name_length();
 
         Self {
             path: entry.path_name.to_string(),
@@ -217,118 +204,31 @@ impl From<&IndexEntry> for Entry {
     }
 }
 
-/// Parses the decimal unsigned integers that Git prints.
-fn decimal(input: &mut &[u8]) -> ModalResult<u32> {
-    dec_uint(input)
+impl From<git2::IndexEntry> for Entry {
+    fn from(entry: git2::IndexEntry) -> Self {
+        Self {
+            path: String::from_utf8_lossy(&entry.path).into_owned(),
+            mode: entry.mode,
+            hash: entry.id.to_string(),
+            ctime_seconds: entry.ctime.seconds() as u32,
+            ctime_ns_fractions: entry.ctime.nanoseconds(),
+            mtime_seconds: entry.mtime.seconds() as u32,
+            mtime_ns_fractions: entry.mtime.nanoseconds(),
+            dev: entry.dev,
+            ino: entry.ino,
+            uid: entry.uid,
+            gid: entry.gid,
+            file_size: entry.file_size,
+            flags: entry.flags,
+        }
+    }
 }
 
-/// Parses the hexadecimal flags that Git prints.
-fn hexadecimal(input: &mut &[u8]) -> ModalResult<u16> {
-    hex_uint(input)
-}
-
-/// Parses a debug property of the form `  <name>: <value>\n`.
-fn property<'a, O>(
-    name: &'static str,
-    mut value: impl Parser<&'a [u8], O, ErrMode<ContextError>>,
-) -> impl Parser<&'a [u8], O, ErrMode<ContextError>> {
-    seq!(_: "  ", _: literal(name), _: ": ", value, _: "\n").map(|(value,)| value)
-}
-
-/// Parses a paired debug property of the form `  <left>: <value>\t<right>: <value>\n`.
-fn property_pair<'a, L, R>(
-    left: &'static str,
-    right: &'static str,
-    mut left_value: impl Parser<&'a [u8], L, ErrMode<ContextError>>,
-    mut right_value: impl Parser<&'a [u8], R, ErrMode<ContextError>>,
-) -> impl Parser<&'a [u8], (L, R), ErrMode<ContextError>> {
-    seq!(
-        _: "  ",
-        _: literal(left),
-        _: ": ",
-        left_value,
-        _: "\t",
-        _: literal(right),
-        _: ": ",
-        right_value,
-        _: "\n",
-    )
-}
-
-/// Parses a timestamp of the form `SECONDS:NANOSECONDS`.
-fn timestamp(input: &mut &[u8]) -> ModalResult<(u32, u32)> {
-    seq!(decimal, _: ":", decimal).parse_next(input)
-}
-
-/// Parses one entry from `git ls-files --stage --debug -z`.
-///
-/// The stage fields and the debug fields use different separators. The path is NUL-terminated,
-/// while all other fields are newline-terminated.
-fn entry(input: &mut &[u8]) -> ModalResult<Entry> {
-    let mode = terminated(oct_digit1, " ")
-        .map(str::from_utf8)
-        .verify_map(Result::ok)
-        .map(|mode| u32::from_str_radix(mode, 8))
-        .verify_map(Result::ok)
-        .parse_next(input)?;
-
-    let hash = terminated(hex_digit1, " ")
-        .map(str::from_utf8)
-        .verify_map(Result::ok)
-        .map(str::to_owned)
-        .parse_next(input)?;
-
-    let _stage = terminated(decimal, "\t").parse_next(input)?;
-
-    let path = terminated(take_until(0.., 0x00), 0x00)
-        .map(str::from_utf8)
-        .verify_map(Result::ok)
-        .map(str::to_owned)
-        .parse_next(input)?;
-
-    let (ctime_seconds, ctime_ns_fractions) = property("ctime", timestamp).parse_next(input)?;
-    let (mtime_seconds, mtime_ns_fractions) = property("mtime", timestamp).parse_next(input)?;
-
-    let (dev, ino) = property_pair("dev", "ino", decimal, decimal).parse_next(input)?;
-    let (uid, gid) = property_pair("uid", "gid", decimal, decimal).parse_next(input)?;
-    let (file_size, flags) =
-        property_pair("size", "flags", decimal, hexadecimal).parse_next(input)?;
-
-    Ok(Entry {
-        path,
-        mode,
-        hash,
-        ctime_seconds,
-        ctime_ns_fractions,
-        mtime_seconds,
-        mtime_ns_fractions,
-        dev,
-        ino,
-        uid,
-        gid,
-        file_size,
-        flags,
-    })
-}
-
-/// Ask the real Git implementation what the index contains.
+/// Ask libgit2 what the index contains.
 fn expected_index_entries(dir: &Path) -> Vec<Entry> {
-    let out = run_git(dir, &["ls-files", "--stage", "--debug", "-z"]);
-
-    assert!(out.status.success(), "git ls-files shouldn't fail");
-
-    let mut input = out.stdout.as_slice();
-
-    let entries = repeat(0.., entry)
-        .parse_next(&mut input)
-        .expect("git ls-files output should be valid");
-
-    assert!(
-        input.is_empty(),
-        "git ls-files output should be fully consumed"
-    );
-
-    entries
+    let repo = Repository::open(dir).expect("should be able to open git repo");
+    let index = repo.index().expect("should be able to get repo index");
+    index.iter().map(Entry::from).collect()
 }
 
 fn run_op(path: &Path, op: &Op) {
@@ -343,31 +243,35 @@ fn run_op(path: &Path, op: &Op) {
             fs::write(&file_path, contents).expect("should be able to write modified file");
         }
         Op::GitAdd(names) => {
-            let out = run_git(
-                path,
-                &iter::once("add")
-                    .chain(names.iter().map(|x| x.0.as_str()))
-                    .collect::<Vec<&str>>(),
-            );
-            assert!(out.status.success(), "git add shouldn't fail");
+            let repo = Repository::open(path).expect("should be able to open git repo");
+            let mut index = repo.index().expect("should be able to get repo index");
+            for name in names {
+                index
+                    .add_path(Path::new(&name.0))
+                    .expect("libgit2 should be able to add file");
+            }
+            index.write().expect("libgit2 should be able to write index");
         }
         Op::GitRm(names) => {
-            let out = run_git(
-                path,
-                &["rm", "-f"]
-                    .into_iter()
-                    .chain(names.iter().map(|x| x.0.as_str()))
-                    .collect::<Vec<&str>>(),
-            );
-
-            assert!(out.status.success(), "git rm shouldn't fail");
+            let repo = Repository::open(path).expect("should be able to open git repo");
+            let mut index = repo.index().expect("should be able to get repo index");
+            for name in names {
+                let file_path = path.join(&name.0);
+                if file_path.exists() {
+                    let _ = fs::remove_file(&file_path);
+                }
+                index
+                    .remove_path(Path::new(&name.0))
+                    .expect("libgit2 should be able to remove file");
+            }
+            index.write().expect("libgit2 should be able to write index");
         }
     }
 }
 
-/// Creates a repository with the real Git implementation, and applies the generated operations.
+/// Creates a repository with libgit2, and applies the generated operations.
 fn run_ops(path: &Path, ops: &Sequence) {
-    run_git(path, &["init"]);
+    Repository::init(path).expect("should be able to init git repo");
 
     for op in ops.clone().into_inner() {
         run_op(path, &op);
@@ -399,15 +303,18 @@ fn run_op_tinygit(path: &Path, op: &Op) {
             );
         }
         Op::GitRm(names) => {
-            let out = run_git(
-                path,
-                &["rm", "-f"]
-                    .into_iter()
-                    .chain(names.iter().map(|x| x.0.as_str()))
-                    .collect::<Vec<&str>>(),
-            );
-
-            assert!(out.status.success(), "git rm shouldn't fail");
+            let repo = Repository::open(path).expect("should be able to open git repo");
+            let mut index = repo.index().expect("should be able to get repo index");
+            for name in names {
+                let file_path = path.join(&name.0);
+                if file_path.exists() {
+                    let _ = fs::remove_file(&file_path);
+                }
+                index
+                    .remove_path(Path::new(&name.0))
+                    .expect("libgit2 should be able to remove file");
+            }
+            index.write().expect("libgit2 should be able to write index");
         }
     }
 }
@@ -486,8 +393,8 @@ fn fuzz_index_differential_add() {
         let git_dir = TempDir::new().unwrap();
         let tinygit_dir = TempDir::new().unwrap();
 
-        run_git(git_dir.path(), &["init"]);
-        run_git(tinygit_dir.path(), &["init"]);
+        Repository::init(git_dir.path()).expect("libgit2 should be able to init git repo");
+        Repository::init(tinygit_dir.path()).expect("libgit2 should be able to init tinygit repo");
 
         let indexed = |entries: Vec<Entry>| -> Vec<Entry> {
             let mut entries = entries;
