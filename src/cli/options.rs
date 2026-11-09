@@ -5,7 +5,7 @@ use crate::cli::commands::{
     add::AddCommand, commit::CommitCommand, hash_object::HashObjectCommand,
     index_pack::IndexPackCommand, log::LogCommand, ls_buckets::LsBucketsCommand,
     ls_objects::LsObjectsCommand, parse_object::ParseObjectCommand, parse_pack::ParsePackCommand,
-    unpack_objects::UnpackObjectsCommand,
+    status::StatusCommand, unpack_objects::UnpackObjectsCommand,
 };
 
 /// The stupid implementation of the stupid content tracker.
@@ -28,6 +28,7 @@ pub enum Subcommand {
     IndexPack(IndexPackCommand),
     AddCommand(AddCommand),
     CommitCommand(CommitCommand),
+    StatusCommand(StatusCommand),
 }
 
 impl Args {
@@ -43,6 +44,7 @@ impl Args {
             Subcommand::IndexPack(cmd) => cmd.run(),
             Subcommand::AddCommand(cmd) => cmd.run(),
             Subcommand::CommitCommand(cmd) => cmd.run(),
+            Subcommand::StatusCommand(cmd) => cmd.run(),
         }
     }
 }
