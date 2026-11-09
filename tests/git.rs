@@ -322,7 +322,7 @@ fn fuzz_index_parsing() {
         let index = Index::open(index_path).expect("should be able to parse index");
 
         // assert entries correctness
-        let mut parsed: Vec<Entry> = index.entries.iter().map(Entry::from).collect();
+        let mut parsed: Vec<Entry> = index.entries().map(Entry::from).collect();
         parsed.sort_by(|left, right| left.path.cmp(&right.path));
 
         assert_eq!(parsed, expected);
@@ -362,3 +362,4 @@ fn fuzz_index_roundtrip() {
         );
     });
 }
+
