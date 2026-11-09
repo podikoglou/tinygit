@@ -218,14 +218,20 @@ impl From<git2::IndexEntry> for Entry {
     }
 }
 
-/// Ask libgit2 what the index contains.
-fn expected_index_entries(dir: &Path) -> Vec<Entry> {
-    let repo = Repository::open(dir).expect("should be able to open git repo");
-    let index = repo.index().expect("should be able to get repo index");
+fn get_libgit2_index_entries(repo: &Repository) -> Vec<Entry> {
+    let mut index = repo.index().expect("should be able to get repo index");
+    let _ = index.read(false);
     index.iter().map(Entry::from).collect()
 }
 
-fn run_op(path: &Path, op: &Op) {
+/// Ask libgit2 what the index contains.
+fn expected_index_entries(dir: &Path) -> Vec<Entry> {
+    let repo = Repository::open(dir).expect("should be able to open git repo");
+    get_libgit2_index_entries(&repo)
+}
+
+fn run_op(repo: &Repository, op: &Op) {
+    let path = repo.workdir().expect("repo must have a workdir");
     match op {
         Op::Create(name, contents) => {
             fs::write(path.join(&name.0), contents).expect("should be able to write file");
@@ -237,7 +243,6 @@ fn run_op(path: &Path, op: &Op) {
             fs::write(&file_path, contents).expect("should be able to write modified file");
         }
         Op::GitAdd(names) => {
-            let repo = Repository::open(path).expect("should be able to open git repo");
             let mut index = repo.index().expect("should be able to get repo index");
             for name in names {
                 index
@@ -247,7 +252,6 @@ fn run_op(path: &Path, op: &Op) {
             index.write().expect("libgit2 should be able to write index");
         }
         Op::GitRm(names) => {
-            let repo = Repository::open(path).expect("should be able to open git repo");
             let mut index = repo.index().expect("should be able to get repo index");
             for name in names {
                 let file_path = path.join(&name.0);
@@ -265,14 +269,15 @@ fn run_op(path: &Path, op: &Op) {
 
 /// Creates a repository with libgit2, and applies the generated operations.
 fn run_ops(path: &Path, ops: &Sequence) {
-    Repository::init(path).expect("should be able to init git repo");
+    let repo = Repository::init(path).expect("should be able to init git repo");
 
     for op in ops.clone().into_inner() {
-        run_op(path, &op);
+        run_op(&repo, &op);
     }
 }
 
-fn run_op_tinygit(path: &Path, op: &Op) {
+fn run_op_tinygit(repo: &Repo, libgit2_repo: &Repository, op: &Op) {
+    let path = &repo.path;
     match op {
         Op::Create(name, contents) => {
             fs::write(path.join(&name.0), contents).expect("should be able to write file");
@@ -284,15 +289,13 @@ fn run_op_tinygit(path: &Path, op: &Op) {
             fs::write(&file_path, contents).expect("should be able to write modified file");
         }
         Op::GitAdd(names) => {
-            let repo = Repo::open(path).expect("should be able to open tinygit repo");
             for name in names {
                 repo.stage(path.join(&name.0))
                     .expect("tinygit stage shouldn't fail");
             }
         }
         Op::GitRm(names) => {
-            let repo = Repository::open(path).expect("should be able to open git repo");
-            let mut index = repo.index().expect("should be able to get repo index");
+            let mut index = libgit2_repo.index().expect("should be able to get repo index");
             for name in names {
                 let file_path = path.join(&name.0);
                 if file_path.exists() {
@@ -381,8 +384,9 @@ fn fuzz_index_differential_add() {
         let git_dir = TempDir::new().unwrap();
         let tinygit_dir = TempDir::new().unwrap();
 
-        Repository::init(git_dir.path()).expect("libgit2 should be able to init git repo");
-        Repository::init(tinygit_dir.path()).expect("libgit2 should be able to init tinygit repo");
+        let git_repo = Repository::init(git_dir.path()).expect("libgit2 should be able to init git repo");
+        let tinygit_libgit2 = Repository::init(tinygit_dir.path()).expect("libgit2 should be able to init tinygit repo");
+        let tinygit_repo = Repo::open(tinygit_dir.path()).expect("should be able to open tinygit repo");
 
         let indexed = |entries: Vec<Entry>| -> Vec<Entry> {
             let mut entries = entries;
@@ -398,8 +402,8 @@ fn fuzz_index_differential_add() {
         };
 
         for op in ops.clone().into_inner() {
-            run_op(git_dir.path(), &op);
-            run_op_tinygit(tinygit_dir.path(), &op);
+            run_op(&git_repo, &op);
+            run_op_tinygit(&tinygit_repo, &tinygit_libgit2, &op);
 
             let tinygit_index_path = tinygit_dir.path().join(".git/index");
 
@@ -411,14 +415,14 @@ fn fuzz_index_differential_add() {
                         .map(Entry::from)
                         .collect(),
                 );
-                let ls_files_view = indexed(expected_index_entries(tinygit_dir.path()));
+                let ls_files_view = indexed(get_libgit2_index_entries(&tinygit_libgit2));
                 assert_eq!(
                     tinygit_view, ls_files_view,
                     "tinygit internal index parse must match git ls-files on tinygit dir after op: {:?}",
                     op
                 );
 
-                let git_view = indexed(expected_index_entries(git_dir.path()));
+                let git_view = indexed(get_libgit2_index_entries(&git_repo));
                 assert_eq!(
                     content_view(git_view),
                     content_view(tinygit_view),
@@ -426,7 +430,7 @@ fn fuzz_index_differential_add() {
                     op
                 );
             } else {
-                let git_view = indexed(expected_index_entries(git_dir.path()));
+                let git_view = indexed(get_libgit2_index_entries(&git_repo));
                 assert!(
                     git_view.is_empty(),
                     "tinygit index does not exist, but git index is not empty after op: {:?}",
