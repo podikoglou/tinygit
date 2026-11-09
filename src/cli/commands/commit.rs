@@ -109,7 +109,7 @@ impl CommitCommand {
         let local_offset = local_time.offset();
         let utc_time = Utc::now().with_timezone(local_offset);
 
-        let timestamp = Timestamp::try_new(utc_time)?;
+        let timestamp = Timestamp::try_new_rounded_up(utc_time)?;
 
         // create commit
         let commit = Commit {
