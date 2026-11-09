@@ -115,6 +115,16 @@ impl Decode for (IndexHeader, Vec<IndexEntry>, ObjectHash) {
 
         let entries = repeat(header.entries as usize, IndexEntry::parse).parse_next(input)?;
 
+        // TODO: support extensions
+        // read (and completel ignore) extensions
+        while input.len() > 20 {
+            take(4usize).parse_next(input)?;
+
+            let size = be_u32.parse_next(input)?;
+
+            take(size as usize).parse_next(input)?;
+        }
+
         let hash = parse_object_hash.parse_next(input)?;
 
         Ok((header, entries, hash))

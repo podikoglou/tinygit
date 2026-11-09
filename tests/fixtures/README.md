@@ -16,6 +16,7 @@
 - `repo-7`: Repo with 2 commits of a file >64KB, packed with `git gc` so that it contains a delta-compressed object copying 64KB (size 0 in copy instruction header)
 - `repo-8`: Repo with a commit containing a subdirectory and files sharing prefixes (`foo-bar`, `foo.c`, `foo/bar.rs`)
 - `repo-9`: Repo with random commits, branches and tags. Comes with a a script (inside it) for generating similar repos.
+- `repo-10`: Repo with an index containing extension blocks (such as cached tree `TREE`)
 
 ### Creating a repository fixture
 - Create a repository somewhere, initialize it as you like
