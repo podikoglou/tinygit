@@ -331,89 +331,88 @@ fn expected_index_entries(dir: &Path) -> Vec<Entry> {
     entries
 }
 
+fn run_op(path: &Path, op: &Op) {
+    match op {
+        Op::Create(name, contents) => {
+            fs::write(path.join(&name.0), contents).expect("should be able to write file");
+        }
+        Op::Modify(name, delta) => {
+            let file_path = path.join(&name.0);
+            let mut contents = fs::read(&file_path).expect("should be able to read file to modify");
+            delta.apply(&mut contents);
+            fs::write(&file_path, contents).expect("should be able to write modified file");
+        }
+        Op::GitAdd(names) => {
+            let out = run_git(
+                path,
+                &iter::once("add")
+                    .chain(names.iter().map(|x| x.0.as_str()))
+                    .collect::<Vec<&str>>(),
+            );
+            assert!(out.status.success(), "git add shouldn't fail");
+        }
+        Op::GitRm(names) => {
+            let out = run_git(
+                path,
+                &["rm", "-f"]
+                    .into_iter()
+                    .chain(names.iter().map(|x| x.0.as_str()))
+                    .collect::<Vec<&str>>(),
+            );
+
+            assert!(out.status.success(), "git rm shouldn't fail");
+        }
+    }
+}
+
 /// Creates a repository with the real Git implementation, and applies the generated operations.
 fn run_ops(path: &Path, ops: &Sequence) {
     run_git(path, &["init"]);
 
     for op in ops.clone().into_inner() {
-        match op {
-            Op::Create(name, contents) => {
-                fs::write(path.join(&name.0), contents).expect("should be able to write file");
-            }
-            Op::Modify(name, delta) => {
-                let file_path = path.join(&name.0);
-                let mut contents =
-                    fs::read(&file_path).expect("should be able to read file to modify");
-                delta.apply(&mut contents);
-                fs::write(&file_path, contents).expect("should be able to write modified file");
-            }
-            Op::GitAdd(names) => {
-                let out = run_git(
-                    path,
-                    &iter::once("add")
-                        .chain(names.iter().map(|x| x.0.as_str()))
-                        .collect::<Vec<&str>>(),
-                );
-                assert!(out.status.success(), "git add shouldn't fail");
-            }
-            Op::GitRm(names) => {
-                let out = run_git(
-                    path,
-                    &["rm", "-f"]
-                        .into_iter()
-                        .chain(names.iter().map(|x| x.0.as_str()))
-                        .collect::<Vec<&str>>(),
-                );
-
-                assert!(out.status.success(), "git rm shouldn't fail");
-            }
-        };
+        run_op(path, &op);
     }
 }
 
-/// Runs operations using tinygit (when possible)
-fn run_ops_tinygit(path: &Path, ops: &Sequence) {
-    run_git(path, &["init"]);
+fn run_op_tinygit(path: &Path, op: &Op) {
+    match op {
+        Op::Create(name, contents) => {
+            fs::write(path.join(&name.0), contents).expect("should be able to write file");
+        }
+        Op::Modify(name, delta) => {
+            let file_path = path.join(&name.0);
+            let mut contents = fs::read(&file_path).expect("should be able to read file to modify");
+            delta.apply(&mut contents);
+            fs::write(&file_path, contents).expect("should be able to write modified file");
+        }
+        Op::GitAdd(names) => {
+            let out = run_tinygit(
+                path,
+                &iter::once("add")
+                    .chain(names.iter().map(|x| x.0.as_str()))
+                    .collect::<Vec<&str>>(),
+            );
+            assert!(
+                out.status.success(),
+                "tinygit add shouldn't fail: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        Op::GitRm(names) => {
+            let out = run_git(
+                path,
+                &["rm", "-f"]
+                    .into_iter()
+                    .chain(names.iter().map(|x| x.0.as_str()))
+                    .collect::<Vec<&str>>(),
+            );
 
-    for op in ops.clone().into_inner() {
-        match op {
-            Op::Create(name, contents) => {
-                fs::write(path.join(&name.0), contents).expect("should be able to write file");
-            }
-            Op::Modify(name, delta) => {
-                let file_path = path.join(&name.0);
-                let mut contents =
-                    fs::read(&file_path).expect("should be able to read file to modify");
-                delta.apply(&mut contents);
-                fs::write(&file_path, contents).expect("should be able to write modified file");
-            }
-            Op::GitAdd(names) => {
-                let out = run_tinygit(
-                    path,
-                    &iter::once("add")
-                        .chain(names.iter().map(|x| x.0.as_str()))
-                        .collect::<Vec<&str>>(),
-                );
-                assert!(
-                    out.status.success(),
-                    "tinygit add shouldn't fail: {}",
-                    String::from_utf8_lossy(&out.stderr)
-                );
-            }
-            Op::GitRm(names) => {
-                let out = run_git(
-                    path,
-                    &["rm", "-f"]
-                        .into_iter()
-                        .chain(names.iter().map(|x| x.0.as_str()))
-                        .collect::<Vec<&str>>(),
-                );
-
-                assert!(out.status.success(), "git rm shouldn't fail");
-            }
-        };
+            assert!(out.status.success(), "git rm shouldn't fail");
+        }
     }
 }
+
+
 
 #[test]
 fn fuzz_index_parsing() {
@@ -487,36 +486,14 @@ fn fuzz_index_differential_add() {
         let git_dir = TempDir::new().unwrap();
         let tinygit_dir = TempDir::new().unwrap();
 
-        run_ops(git_dir.path(), ops);
-        run_ops_tinygit(tinygit_dir.path(), ops);
+        run_git(git_dir.path(), &["init"]);
+        run_git(tinygit_dir.path(), &["init"]);
 
         let indexed = |entries: Vec<Entry>| -> Vec<Entry> {
             let mut entries = entries;
             entries.sort_by(|left, right| left.path.cmp(&right.path));
             entries
         };
-
-        // tinygit's directory: its index should parse, and Git reading it back with
-        // `ls-files --stage --debug` must agree with tinygit's own parse.
-        let index_path = tinygit_dir.path().join(".git/index");
-        if !index_path.exists() {
-            // tinygit never staged, so `git rm` and `git init` write nothing of its own.
-            return;
-        }
-
-        let tinygit_view = indexed(
-            Index::open(index_path)
-                .expect("tinygit's index should parse")
-                .entries()
-                .map(Entry::from)
-                .collect(),
-        );
-        let ls_files_view = indexed(expected_index_entries(tinygit_dir.path()));
-        assert_eq!(tinygit_view, ls_files_view);
-
-        // cross-directory: Git's directory versus tinygit's directory, compared over the
-        // fields that are derived from file contents rather than directory state.
-        let git_view = indexed(expected_index_entries(git_dir.path()));
 
         let content_view = |entries: Vec<Entry>| -> Vec<(String, u32, String, u16)> {
             entries
@@ -525,6 +502,42 @@ fn fuzz_index_differential_add() {
                 .collect()
         };
 
-        assert_eq!(content_view(git_view), content_view(tinygit_view));
+        for op in ops.clone().into_inner() {
+            run_op(git_dir.path(), &op);
+            run_op_tinygit(tinygit_dir.path(), &op);
+
+            let tinygit_index_path = tinygit_dir.path().join(".git/index");
+
+            if tinygit_index_path.exists() {
+                let tinygit_view = indexed(
+                    Index::open(tinygit_index_path)
+                        .expect("tinygit's index should parse")
+                        .entries()
+                        .map(Entry::from)
+                        .collect(),
+                );
+                let ls_files_view = indexed(expected_index_entries(tinygit_dir.path()));
+                assert_eq!(
+                    tinygit_view, ls_files_view,
+                    "tinygit internal index parse must match git ls-files on tinygit dir after op: {:?}",
+                    op
+                );
+
+                let git_view = indexed(expected_index_entries(git_dir.path()));
+                assert_eq!(
+                    content_view(git_view),
+                    content_view(tinygit_view),
+                    "git index and tinygit index content must match after op: {:?}",
+                    op
+                );
+            } else {
+                let git_view = indexed(expected_index_entries(git_dir.path()));
+                assert!(
+                    git_view.is_empty(),
+                    "tinygit index does not exist, but git index is not empty after op: {:?}",
+                    op
+                );
+            }
+        }
     });
 }
