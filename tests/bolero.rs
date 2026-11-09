@@ -18,6 +18,7 @@ use tinygit::{
                 size,
             },
         },
+        reference::RefPointer,
     },
     time::Timestamp,
 };
@@ -338,6 +339,21 @@ fn fuzz_packed_object() {
             parsed.encode(&mut buf).expect("should be encodable");
 
             let parsed_2 = PackedObject::decode_bytes(&buf).expect("should be parseable");
+
+            assert_eq!(parsed_2, parsed);
+        }
+    });
+}
+
+#[test]
+fn roundtrip_ref_pointer() {
+    check!().for_each(|input: &[u8]| {
+        if let Ok(parsed) = RefPointer::decode_bytes(input) {
+            let mut buf = Vec::default();
+
+            parsed.encode(&mut buf).expect("should be encodable");
+
+            let parsed_2 = RefPointer::decode_bytes(&buf).expect("should be parseable");
 
             assert_eq!(parsed_2, parsed);
         }
