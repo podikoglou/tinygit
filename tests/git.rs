@@ -6,13 +6,15 @@ use git2::Repository;
 use nutype::nutype;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs, iter,
+    fs,
     path::Path,
-    process::{Command, Output},
 };
 use strum::EnumDiscriminants;
 use tempfile::TempDir;
-use tinygit::storage::index::{Index, IndexEntry};
+use tinygit::{
+    Repo,
+    storage::index::{Index, IndexEntry},
+};
 
 #[derive(Debug, Clone, TypeGenerator)]
 struct Name(#[generator(produce::<String>().with().len(1..=255).chars('A'..='z'))] String);
@@ -151,14 +153,6 @@ impl TypeGenerator for Sequence {
     }
 }
 
-fn run_tinygit(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_tinygit"))
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .expect("should be able to run tinygit")
-}
-
 /// All the properties that libgit2 reports for an index entry.
 #[derive(Debug, PartialEq, Eq)]
 struct Entry {
@@ -290,17 +284,11 @@ fn run_op_tinygit(path: &Path, op: &Op) {
             fs::write(&file_path, contents).expect("should be able to write modified file");
         }
         Op::GitAdd(names) => {
-            let out = run_tinygit(
-                path,
-                &iter::once("add")
-                    .chain(names.iter().map(|x| x.0.as_str()))
-                    .collect::<Vec<&str>>(),
-            );
-            assert!(
-                out.status.success(),
-                "tinygit add shouldn't fail: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
+            let repo = Repo::open(path).expect("should be able to open tinygit repo");
+            for name in names {
+                repo.stage(path.join(&name.0))
+                    .expect("tinygit stage shouldn't fail");
+            }
         }
         Op::GitRm(names) => {
             let repo = Repository::open(path).expect("should be able to open git repo");
