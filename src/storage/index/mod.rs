@@ -34,7 +34,7 @@ pub struct Index {
     pub path: PathBuf,
     pub header: IndexHeader,
     pub hash: ObjectHash,
-    pub entries: Vec<IndexEntry>,
+    entries: Vec<IndexEntry>,
 }
 
 impl Index {
@@ -81,6 +81,31 @@ impl Index {
 
     pub fn lock_path(&self) -> PathBuf {
         self.path.with_extension("lock")
+    }
+
+    /// Iterates over the entries in this index, sorted by path name.
+    pub fn entries(&self) -> impl Iterator<Item = &IndexEntry> {
+        self.entries.iter()
+    }
+
+    /// Adds `entry` to the index, keeping the entries sorted by path name.
+    ///
+    /// If an entry with the same path name already exists, it is removed first.
+    /// The header's entry count is kept in sync.
+    pub fn add_entry(&mut self, entry: IndexEntry) {
+        // remove any entry that already exists with the same path name
+        self.entries
+            .retain(|existing| existing.path_name != entry.path_name);
+
+        // entries must remain sorted by path name for the format to be valid
+        let insert_at = self
+            .entries
+            .partition_point(|existing| existing.path_name < entry.path_name);
+
+        self.entries.insert(insert_at, entry);
+
+        self.header.entries = u32::try_from(self.entries.len())
+            .expect("the index cannot hold more entries than u32 allows");
     }
 }
 
