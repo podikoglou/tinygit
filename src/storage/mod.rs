@@ -1,5 +1,5 @@
 use std::{
-    fs,
+    fs::{self, File},
     path::PathBuf,
     sync::{Arc, RwLock},
 };
@@ -8,6 +8,7 @@ use once_cell::sync::OnceCell;
 
 use crate::{
     TinygitError,
+    ende::Encode,
     error::ParserContext,
     object::{
         Object,
@@ -196,6 +197,8 @@ impl Store {
 
     /// Finds a [Ref] in the repository.
     ///
+    /// Priority is given to loose refs, like the `git`.
+    ///
     /// Note that this function does not guarantee that the returned ref is peeled.
     pub fn reference(&self, name: &RefName) -> Result<Ref, TinygitError> {
         // try to read as loose
@@ -214,6 +217,15 @@ impl Store {
         let ref_db = self.ref_db().map_err(|_| TinygitError::RefNotFound)?;
 
         ref_db.lookup(&name).map_err(|_| TinygitError::RefNotFound)
+    }
+
+    /// Sets the pointer of a [Ref] in the repository.
+    pub fn set_reference(&self, name: &RefName, pointer: RefPointer) -> Result<(), TinygitError> {
+        let mut file = File::create(self.ref_path(name))?;
+
+        pointer.encode(&mut file)?;
+
+        Ok(())
     }
 
     /// Recursively resolve a [RefPointer] to a the [ObjectHash] of the object it points to.
