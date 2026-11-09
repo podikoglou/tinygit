@@ -101,6 +101,14 @@ impl TypeGenerator for Sequence {
     }
 }
 
+fn run_tinygit(dir: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_tinygit"))
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("should be able to run tinygit")
+}
+
 fn run_git(dir: &Path, args: &[&str]) -> Output {
     Command::new("git")
         .args(args)
@@ -300,6 +308,43 @@ fn run_ops(path: &Path, ops: &Sequence) {
     }
 }
 
+/// Runs operations using tinygit (when possible)
+fn run_ops_tinygit(path: &Path, ops: &Sequence) {
+    run_git(path, &["init"]);
+
+    for op in ops.clone().into_inner() {
+        match op {
+            Op::Create(name, contents) => {
+                fs::write(path.join(&name.0), contents).expect("should be able to write file");
+            }
+            Op::GitAdd(names) => {
+                let out = run_tinygit(
+                    path,
+                    &iter::once("add")
+                        .chain(names.iter().map(|x| x.0.as_str()))
+                        .collect::<Vec<&str>>(),
+                );
+                assert!(
+                    out.status.success(),
+                    "tinygit add shouldn't fail: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+            Op::GitRm(names) => {
+                let out = run_git(
+                    path,
+                    &["rm", "-f"]
+                        .into_iter()
+                        .chain(names.iter().map(|x| x.0.as_str()))
+                        .collect::<Vec<&str>>(),
+                );
+
+                assert!(out.status.success(), "git rm shouldn't fail");
+            }
+        };
+    }
+}
+
 #[test]
 fn fuzz_index_parsing() {
     check!().with_type::<Sequence>().for_each(|ops| {
@@ -360,6 +405,59 @@ fn fuzz_index_roundtrip() {
             original, rewritten,
             "tinygit's index should be byte-identical to Git's"
         );
+    });
+}
+
+
+/// Tests random sequences of git operations by running them once in a directory using git, and
+/// running them in another directory using tinygit. Asserts the contents of the index are the same
+/// (minus the things that can't be the same, like the timestamps and inodes)
+#[test]
+fn fuzz_index_differential_add() {
+    check!().with_type::<Sequence>().for_each(|ops| {
+        let git_dir = TempDir::new().unwrap();
+        let tinygit_dir = TempDir::new().unwrap();
+
+        run_ops(git_dir.path(), ops);
+        run_ops_tinygit(tinygit_dir.path(), ops);
+
+        let indexed = |entries: Vec<Entry>| -> Vec<Entry> {
+            let mut entries = entries;
+            entries.sort_by(|left, right| left.path.cmp(&right.path));
+            entries
+        };
+
+        // tinygit's directory: its index should parse, and Git reading it back with
+        // `ls-files --stage --debug` must agree with tinygit's own parse.
+        let index_path = tinygit_dir.path().join(".git/index");
+        if !index_path.exists() {
+            // tinygit never staged, so `git rm` and `git init` write nothing of its own.
+            return;
+        }
+
+        let tinygit_view = indexed(
+            Index::open(index_path)
+                .expect("tinygit's index should parse")
+                .entries
+                .iter()
+                .map(Entry::from)
+                .collect(),
+        );
+        let ls_files_view = indexed(expected_index_entries(tinygit_dir.path()));
+        assert_eq!(tinygit_view, ls_files_view);
+
+        // cross-directory: Git's directory versus tinygit's directory, compared over the
+        // fields that are derived from file contents rather than directory state.
+        let git_view = indexed(expected_index_entries(git_dir.path()));
+
+        let content_view = |entries: Vec<Entry>| -> Vec<(String, u32, String, u16)> {
+            entries
+                .into_iter()
+                .map(|entry| (entry.path, entry.mode, entry.hash, entry.flags))
+                .collect()
+        };
+
+        assert_eq!(content_view(git_view), content_view(tinygit_view));
     });
 }
 
