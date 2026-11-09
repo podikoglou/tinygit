@@ -92,7 +92,10 @@ impl CommitCommand {
         // can we remove this clone? perhaps we can have it returned from encode_object?
         let final_tree_hash = final_tree_raw.clone().hash()?;
 
-        repo.store.encode_object(&final_tree_raw)?;
+        match repo.store.encode_object(&final_tree_raw) {
+            Err(TinygitError::ObjectExists) => {}
+            other => other?,
+        };
 
         // figure out identity
         // TODO: actual identity management
