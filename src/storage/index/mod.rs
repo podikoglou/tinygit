@@ -174,7 +174,7 @@ impl Encode for IndexHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct IndexEntry {
     /// ctime seconds, the last time a file's metadata changed
     pub ctime_seconds: u32,
@@ -414,7 +414,7 @@ impl TryFrom<u8> for ObjectType {
 /// | x  | x  |   xx   | xxxxxxxxxxxx |
 /// | 15 | 14 | 13..12 |     11..0    |
 /// +----+----+--------+--------------+
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Flags {
     assume_valid: bool,
     extended: bool,
