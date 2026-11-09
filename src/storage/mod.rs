@@ -228,8 +228,9 @@ impl Store {
         }
     }
 
-    /// Gets the [ObjectHash] of the commit `HEAD` is pointing to.
     /// Gets the [Commit] and [ObjectHash] (in a tuple) of the commit `HEAD` is pointing to.
+    ///
+    /// Returns [TinygitError::RefNotFound] if not found.
     pub fn head(&self) -> Result<(Commit, ObjectHash), TinygitError> {
         self.reference(&"HEAD".into())
             .and_then(|head| self.resolve_reference(&head.pointer))
