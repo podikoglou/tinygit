@@ -84,11 +84,8 @@ impl AddCommand {
                 Index::new(index_path)
             };
 
-            // if it already exists in the index, remove it
-            index.entries.retain(|entry| &entry.path_name != path_name);
-
             // add the new entry
-            index.entries.push(IndexEntry {
+            index.add_entry(IndexEntry {
                 ctime_seconds: ctime.as_secs().try_into()?,
                 ctime_ns_fractions: ctime.subsec_nanos(),
                 mtime_seconds: mtime.as_secs().try_into()?,
