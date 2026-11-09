@@ -438,8 +438,7 @@ fn fuzz_index_differential_add() {
         let tinygit_view = indexed(
             Index::open(index_path)
                 .expect("tinygit's index should parse")
-                .entries
-                .iter()
+                .entries()
                 .map(Entry::from)
                 .collect(),
         );
