@@ -12,7 +12,7 @@ use tinygit::{
         commit::Commit,
         tree::{Tree, TreeEntry, TreeKey},
     },
-    storage::object::RawObject,
+    storage::{object::RawObject, reference::RefPointer},
     time::Timestamp,
 };
 
@@ -123,8 +123,20 @@ impl CommitCommand {
 
         let commit_object = Object::Commit(Box::new(commit));
         let commit_object_raw = RawObject::try_from(commit_object)?;
+        let commit_object_hash = commit_object_raw.clone().hash()?;
 
         repo.store.encode_object(&commit_object_raw)?;
+
+        // update HEAD
+        match &repo.store.reference(&"HEAD".into())?.pointer {
+            RefPointer::Symbolic(r#ref) => repo
+                .store
+                .set_reference(r#ref, RefPointer::Hash(commit_object_hash))?,
+
+            RefPointer::Hash(_) => repo
+                .store
+                .set_reference(&"HEAD".into(), RefPointer::Hash(commit_object_hash))?,
+        };
 
         Ok(())
     }
