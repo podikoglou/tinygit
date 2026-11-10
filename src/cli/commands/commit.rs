@@ -47,7 +47,7 @@ impl CommitCommand {
             .into_iter()
             .map(|entry| {
                 let key = TreeKey::new(
-                    FileName::decode_bytes(entry.path_name.as_slice())?,
+                    FileName::try_new(entry.path_name.to_string())?,
                     entry.mode.permission(),
                 );
 
