@@ -69,9 +69,9 @@ impl CommitCommand {
         };
 
         // figure out where to place commit
-        let head = match repo.store.head() {
-            Ok(head) => Some(head),
-            Err(TinygitError::RefNotFound) => None,
+        let parents = match repo.store.head() {
+            Ok(head) => vec![head.1],
+            Err(TinygitError::RefNotFound) => vec![],
             Err(err) => return Err(err),
         };
 
@@ -92,7 +92,7 @@ impl CommitCommand {
         // create commit
         let commit = Commit {
             tree: tree_hash,
-            parents: head.map(|(_, hash)| vec![hash]).unwrap_or_default(),
+            parents,
             author: (identity.clone(), timestamp.clone()),
             committer: (identity, timestamp),
             extra: vec![],
