@@ -1,14 +1,14 @@
 use std::env;
 
 use argh::FromArgs;
-use chrono::{DateTime, FixedOffset, Local, Utc};
+use chrono::{Local, Utc};
 use tinygit::{
     Repo, TinygitError,
     ende::Decode,
     fs::FileName,
     identity::{Email, Identity, Name},
     object::{
-        Object, ObjectType,
+        Object,
         commit::Commit,
         tree::{Tree, TreeEntry, TreeKey},
     },
