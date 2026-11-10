@@ -1,4 +1,4 @@
-use std::env;
+use std::{collections::BTreeMap, env};
 
 use argh::FromArgs;
 use chrono::{Local, Utc};
@@ -43,18 +43,21 @@ impl CommitCommand {
         }
 
         // convert index entries to tree entries (TreeKey, TreeEntry)
-        let tree_entries = index_entries.into_iter().filter_map(|entry| {
-            let key = TreeKey::new(
-                FileName::decode_bytes(entry.path_name.as_slice()).ok()?,
-                entry.mode.permission(),
-            );
+        let tree_entries = index_entries
+            .into_iter()
+            .map(|entry| {
+                let key = TreeKey::new(
+                    FileName::decode_bytes(entry.path_name.as_slice())?,
+                    entry.mode.permission(),
+                );
 
-            let entry = TreeEntry::new(entry.hash.clone());
+                let entry = TreeEntry::new(entry.hash.clone());
 
-            Some((key, entry))
-        });
+                Ok((key, entry))
+            })
+            .collect::<Result<BTreeMap<_, _>, TinygitError>>()?;
 
-        let tree = Tree::new(tree_entries.collect());
+        let tree = Tree::new(tree_entries);
 
         let tree_object = Object::Tree(tree);
         let tree_raw = RawObject::try_from(tree_object)?;
