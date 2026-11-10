@@ -54,47 +54,25 @@ impl CommitCommand {
             Some((key, entry))
         });
 
-        let new_tree = Tree::new(tree_entries.collect());
+        let tree = Tree::new(tree_entries.collect());
+
+        let tree_object = Object::Tree(tree);
+        let tree_raw = RawObject::try_from(tree_object)?;
+
+        // can we remove this clone? perhaps we can have it returned from encode_object?
+        let tree_hash = tree_raw.clone().hash()?;
+
+        // create tree object
+        match repo.store.encode_object(&tree_raw) {
+            Err(TinygitError::ObjectExists) => {}
+            other => other?,
+        };
 
         // figure out where to place commit
         let head = match repo.store.head() {
             Ok(head) => Some(head),
             Err(TinygitError::RefNotFound) => None,
             Err(err) => return Err(err),
-        };
-
-        // create tree object
-        let final_tree: Tree = match &head {
-            None => new_tree,
-            Some((head_commit, _)) => {
-                // get HEAD tree and merge the new tree into it
-                let head_tree = repo
-                    .store
-                    .object(&head_commit.tree)?
-                    .try_as_tree()
-                    .ok_or(TinygitError::UnexpectedObjectType)?;
-
-                let mut final_tree = head_tree.clone();
-
-                for entry in new_tree.entries {
-                    // TODO: this is quite slow! how do we address this?
-                    final_tree.entries.retain(|key, _| key.name != entry.0.name);
-
-                    final_tree.entries.insert(entry.0, entry.1);
-                }
-
-                final_tree
-            }
-        };
-        let final_tree_object = Object::Tree(final_tree);
-        let final_tree_raw = RawObject::try_from(final_tree_object)?;
-
-        // can we remove this clone? perhaps we can have it returned from encode_object?
-        let final_tree_hash = final_tree_raw.clone().hash()?;
-
-        match repo.store.encode_object(&final_tree_raw) {
-            Err(TinygitError::ObjectExists) => {}
-            other => other?,
         };
 
         // figure out identity
@@ -113,7 +91,7 @@ impl CommitCommand {
 
         // create commit
         let commit = Commit {
-            tree: final_tree_hash,
+            tree: tree_hash,
             parents: head.map(|(_, hash)| vec![hash]).unwrap_or_default(),
             author: (identity.clone(), timestamp.clone()),
             committer: (identity, timestamp),
