@@ -4,6 +4,7 @@ use std::{
     path::PathBuf,
 };
 
+use bitfield::bitfield;
 use bstr::BString;
 use sha1::{
     Digest, Sha1,
@@ -294,16 +295,20 @@ impl Encode for IndexEntry {
     }
 }
 
-/// +------------+------------+------------+------------+
-/// |   unused   |  obj type  |   unused   | permission |
-/// | 31 .... 16 | 15  ... 12 | 11  ...  9 | 8  ...   0 |
-/// +------------+------------+------------+------------+
-#[derive(Debug, PartialEq, Eq)]
-pub struct Mode {
-    object_type: ObjectType,
+bitfield! {
+    /// +------------+------------+------------+------------+
+    /// |   unused   |  obj type  |   unused   | permission |
+    /// | 31 .... 16 | 15  ... 12 | 11  ...  9 | 8  ...   0 |
+    /// +------------+------------+------------+------------+
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub struct Mode(u32);
+    impl Debug;
 
     /// 0o0755 or 0o0644 for regular files, 0 for symbolic links and git links.
-    permission: u16,
+    pub u16, permission, set_permission: 8, 0;
+    pub u8, unused_2, set_unused_2: 11, 9;
+    pub u8, from try_into ObjectType, try_object_type, set_object_type: 15, 12;
+    pub u16, unused_1, set_unused_1: 31, 16;
 }
 
 impl Mode {
@@ -318,54 +323,45 @@ impl Mode {
             return Err(TinygitError::InvalidModePermission(permission));
         }
 
-        Ok(Self {
-            object_type,
-            permission,
-        })
+        let mut mode = Self(0);
+        mode.set_object_type(object_type);
+        mode.set_permission(permission);
+        Ok(mode)
     }
 
     pub fn object_type(&self) -> ObjectType {
-        self.object_type
-    }
-
-    pub fn permission(&self) -> u16 {
-        self.permission
+        self.try_object_type()
+            .expect("Mode contains a valid ObjectType")
     }
 }
 
 impl Decode for Mode {
     fn parse(input: &mut Stream<'_>) -> ModalResult<Self> {
         let value = be_u32.parse_next(input)?;
+        let mode = Self(value);
 
         // ensure the first unused part is 0
-        if value >> 16 != 0 {
+        if mode.unused_1() != 0 {
             return Err(ErrMode::Cut(ContextError::new()));
         }
 
         // ensure the second unused part is 0
-        if (value >> 9) & 0b0111 != 0 {
+        if mode.unused_2() != 0 {
             return Err(ErrMode::Cut(ContextError::new()));
         }
 
-        let object_type = ObjectType::try_from(((value >> 12) & 0xF) as u8)
+        let object_type = mode
+            .try_object_type()
             .map_err(|err| ErrMode::Cut(ContextError::from_external_error(input, err)))?;
 
-        let permission: u16 = (value & 0x1FF)
-            .try_into()
-            .map_err(|err| ErrMode::Cut(ContextError::from_external_error(input, err)))?;
-
-        Self::try_new(object_type, permission)
+        Self::try_new(object_type, mode.permission())
             .map_err(|err| ErrMode::Cut(ContextError::from_external_error(input, err)))
     }
 }
 
 impl Encode for Mode {
     fn encode<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
-        let obj_type: u8 = self.object_type.into();
-
-        let value: u32 = ((obj_type as u32) << 12) | self.permission as u32;
-
-        writer.write_all(&value.to_be_bytes())?;
+        writer.write_all(&self.0.to_be_bytes())?;
 
         Ok(())
     }
