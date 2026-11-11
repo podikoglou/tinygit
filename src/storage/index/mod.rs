@@ -346,6 +346,11 @@ impl Mode {
         self.try_object_type()
             .expect("Mode contains a valid ObjectType")
     }
+
+    /// Returns the raw, bitpacked mode.
+    pub fn raw(&self) -> u32 {
+        self.0
+    }
 }
 
 impl Decode for Mode {

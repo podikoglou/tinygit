@@ -48,7 +48,7 @@ impl CommitCommand {
             .map(|entry| {
                 let key = TreeKey::new(
                     FileName::try_new(entry.path_name.to_string())?,
-                    entry.mode.permission(),
+                    entry.mode.raw() as u16,
                 );
 
                 let entry = TreeEntry::new(entry.hash.clone());
