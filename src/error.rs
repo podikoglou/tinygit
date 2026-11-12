@@ -118,6 +118,9 @@ pub enum TinygitError {
     #[error("Ref not found")]
     RefNotFound,
 
+    #[error("Nothing to commit")]
+    NothingToCommit,
+
     #[error("Unexpected object type")]
     UnexpectedObjectType,
 

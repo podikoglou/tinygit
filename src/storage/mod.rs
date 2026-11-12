@@ -7,11 +7,14 @@ use std::{
 
 use once_cell::sync::OnceCell;
 
+use bstr::BString;
+
 use crate::{
     TinygitError,
     ende::Encode,
     error::ParserContext,
     fs::FileName,
+    identity::Identity,
     object::{
         Object,
         commit::Commit,
@@ -23,6 +26,7 @@ use crate::{
         object::{LazyObject, LooseDb, ObjectDb, ObjectsBucket, RawObject, packed::Packfile},
         reference::{Ref, RefName, RefPointer, db::RefsDb},
     },
+    time::Timestamp,
 };
 
 pub mod index;
@@ -229,6 +233,41 @@ impl Store {
         }
 
         self.write_object(&Object::Tree(Tree::new(entries)))
+    }
+
+    /// Commits the current index and moves `HEAD`.
+    pub fn commit(
+        &self,
+        message: impl Into<BString>,
+        author: (Identity, Timestamp),
+        committer: (Identity, Timestamp),
+    ) -> Result<ObjectHash, TinygitError> {
+        if self.index()?.entries().next().is_none() {
+            return Err(TinygitError::NothingToCommit);
+        }
+
+        let tree = self.write_tree()?;
+
+        let parents = match self.head() {
+            Ok((_, hash)) => vec![hash],
+            Err(TinygitError::RefNotFound) => vec![],
+            Err(err) => return Err(err),
+        };
+
+        let commit = Commit {
+            tree,
+            parents,
+            author,
+            committer,
+            extra: vec![],
+            description: message.into(),
+        };
+
+        let hash = self.write_object(&Object::Commit(Box::new(commit)))?;
+
+        self.set_head(hash.clone())?;
+
+        Ok(hash)
     }
 
     /// Gets a handle to the `packed-refs` database
