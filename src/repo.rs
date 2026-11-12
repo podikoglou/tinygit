@@ -12,8 +12,9 @@ use crate::{
     object::{Object, blob::Blob},
     storage::{
         Store,
-        index::{Flags, Index, IndexEntry, Mode, ObjectType},
+        index::{Flags, IndexEntry, Mode, ObjectType},
         object::RawObject,
+        reference::RefPointer,
     },
 };
 
@@ -49,7 +50,12 @@ impl Repo {
         fs::create_dir_all(path.join(".git/refs/heads"))?;
 
         let store = Store::open(path.join(".git"))?;
-        // TODO: make HEAD reference
+
+        // a fresh repository starts on an unborn branch
+        store.set_reference(
+            &"HEAD".into(),
+            RefPointer::Symbolic("refs/heads/main".into()),
+        )?;
 
         Ok(Self { store, path })
     }
@@ -110,13 +116,7 @@ impl Repo {
         };
 
         // Git treats a missing index file as an empty index.
-        let index_path = self.store.index_path();
-
-        let mut index = if index_path.exists() {
-            self.store.index()?
-        } else {
-            Index::new(index_path)
-        };
+        let mut index = self.store.index()?;
 
         // add the new entry
         index.add_entry(IndexEntry {

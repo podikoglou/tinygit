@@ -174,7 +174,7 @@ impl Encode for IndexHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct IndexEntry {
     /// ctime seconds, the last time a file's metadata changed
     pub ctime_seconds: u32,
@@ -346,6 +346,11 @@ impl Mode {
         self.try_object_type()
             .expect("Mode contains a valid ObjectType")
     }
+
+    /// Returns the raw, bitpacked mode.
+    pub fn raw(&self) -> u32 {
+        self.0
+    }
 }
 
 impl Decode for Mode {
@@ -414,7 +419,7 @@ impl TryFrom<u8> for ObjectType {
 /// | x  | x  |   xx   | xxxxxxxxxxxx |
 /// | 15 | 14 | 13..12 |     11..0    |
 /// +----+----+--------+--------------+
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Flags {
     assume_valid: bool,
     extended: bool,

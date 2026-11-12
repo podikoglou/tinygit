@@ -10,6 +10,8 @@ use std::{
 use hex::FromHexError;
 use thiserror::Error;
 
+use crate::{identity::NameError, time::TimestampError};
+
 /// Context for parsing used in the error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParserContext {
@@ -113,11 +115,11 @@ pub enum TinygitError {
     #[error("Ref not found")]
     RefNotFound,
 
+    #[error("Empty tree")]
+    EmptyTree,
+
     #[error("Unexpected object type")]
     UnexpectedObjectType,
-
-    #[error("Invalid HEAD")]
-    InvalidHead,
 
     #[error("Unexpected object type")]
     UnexpectedType,
@@ -152,4 +154,10 @@ pub enum TinygitError {
 
     #[error("Lock is already beind held")]
     LockHeld,
+
+    #[error("Invalid identity: {0}")]
+    IdentityNameError(#[from] NameError),
+
+    #[error("Invalid timestamp: {0}")]
+    TimestampError(#[from] TimestampError),
 }

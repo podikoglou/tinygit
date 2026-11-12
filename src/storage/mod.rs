@@ -1,24 +1,32 @@
 use std::{
-    fs,
+    collections::BTreeMap,
+    fs::{self, File},
     path::PathBuf,
     sync::{Arc, RwLock},
 };
 
 use once_cell::sync::OnceCell;
 
+use bstr::BString;
+
 use crate::{
     TinygitError,
+    ende::Encode,
     error::ParserContext,
+    fs::FileName,
+    identity::Identity,
     object::{
         Object,
         commit::Commit,
         hash::{HashPrefix, ObjectHash},
+        tree::{Tree, TreeEntry, TreeKey},
     },
     storage::{
         index::Index,
         object::{LazyObject, LooseDb, ObjectDb, ObjectsBucket, RawObject, packed::Packfile},
         reference::{Ref, RefName, RefPointer, db::RefsDb},
     },
+    time::Timestamp,
 };
 
 pub mod index;
@@ -187,6 +195,80 @@ impl Store {
         self.loose.encode_object(object)
     }
 
+    /// Writes an [Object] and returns its hash.
+    ///
+    /// An object that already exists is not an error.
+    pub fn write_object(&self, object: &Object) -> Result<ObjectHash, TinygitError> {
+        let raw_object = RawObject::try_from(object.clone())?;
+        let hash = raw_object.clone().hash()?;
+
+        match self.encode_object(&raw_object) {
+            Err(TinygitError::ObjectExists) => {}
+            other => other?,
+        };
+
+        Ok(hash)
+    }
+
+    /// Writes the index as a tree object and returns its hash.
+    ///
+    /// Equivalent to `git write-tree`.
+    pub fn write_tree(&self) -> Result<ObjectHash, TinygitError> {
+        let mut entries = BTreeMap::new();
+
+        for entry in self.index()?.entries() {
+            let key = TreeKey::new(
+                FileName::try_new(entry.path_name.to_string())?,
+                entry.mode.raw() as u16,
+            );
+
+            entries.insert(key, TreeEntry::new(entry.hash.clone()));
+        }
+
+        self.write_object(&Object::Tree(Tree::new(entries)))
+    }
+
+    /// Commits the current index and moves `HEAD`.
+    pub fn commit(
+        &self,
+        message: impl Into<BString>,
+        author: (Identity, Timestamp),
+        committer: (Identity, Timestamp),
+    ) -> Result<ObjectHash, TinygitError> {
+        if self.index()?.entries().next().is_none() {
+            return Err(TinygitError::EmptyTree);
+        }
+
+        let tree = self.write_tree()?;
+
+        let parents = match self.head() {
+            Ok((_, hash)) => vec![hash],
+            Err(TinygitError::RefNotFound) => vec![],
+            Err(err) => return Err(err),
+        };
+
+        // `git commit -m` stores the message followed by a newline
+        let mut description: BString = message.into();
+        if !description.ends_with(b"\n") {
+            description.push(b'\n');
+        }
+
+        let commit = Commit {
+            tree,
+            parents,
+            author,
+            committer,
+            extra: vec![],
+            description,
+        };
+
+        let hash = self.write_object(&Object::Commit(Box::new(commit)))?;
+
+        self.set_head(hash.clone())?;
+
+        Ok(hash)
+    }
+
     /// Gets a handle to the `packed-refs` database
     pub fn ref_db(&self) -> Result<Arc<RefsDb>, TinygitError> {
         self.refs_db
@@ -195,6 +277,8 @@ impl Store {
     }
 
     /// Finds a [Ref] in the repository.
+    ///
+    /// Priority is given to loose refs, like the `git`.
     ///
     /// Note that this function does not guarantee that the returned ref is peeled.
     pub fn reference(&self, name: &RefName) -> Result<Ref, TinygitError> {
@@ -216,6 +300,32 @@ impl Store {
         ref_db.lookup(&name).map_err(|_| TinygitError::RefNotFound)
     }
 
+    /// Sets the pointer of a [Ref] in the repository.
+    pub fn set_reference(&self, name: &RefName, pointer: RefPointer) -> Result<(), TinygitError> {
+        let path = self.ref_path(name);
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let mut file = File::create(path)?;
+
+        pointer.encode(&mut file)?;
+
+        Ok(())
+    }
+
+    /// Moves `HEAD` to `hash`.
+    ///
+    /// If HEAD is symbolic, this moves the target branch.
+    /// If HEAD is detached, this moves HEAD itself.
+    pub fn set_head(&self, hash: ObjectHash) -> Result<(), TinygitError> {
+        match self.reference(&"HEAD".into())?.pointer {
+            RefPointer::Symbolic(target) => self.set_reference(&target, RefPointer::Hash(hash)),
+            RefPointer::Hash(_) => self.set_reference(&"HEAD".into(), RefPointer::Hash(hash)),
+        }
+    }
+
     /// Recursively resolve a [RefPointer] to a the [ObjectHash] of the object it points to.
     pub fn resolve_reference(&self, pointer: &RefPointer) -> Result<ObjectHash, TinygitError> {
         match pointer {
@@ -228,8 +338,9 @@ impl Store {
         }
     }
 
-    /// Gets the [ObjectHash] of the commit `HEAD` is pointing to.
     /// Gets the [Commit] and [ObjectHash] (in a tuple) of the commit `HEAD` is pointing to.
+    ///
+    /// Returns [TinygitError::RefNotFound] if not found.
     pub fn head(&self) -> Result<(Commit, ObjectHash), TinygitError> {
         self.reference(&"HEAD".into())
             .and_then(|head| self.resolve_reference(&head.pointer))
@@ -246,8 +357,16 @@ impl Store {
     ///
     /// For the sake of doing less bookkeeeping (like trying to keep the index up to date), we don't
     /// store the index in the Store. Instead, it is dynamically read every time this is called.
+    ///
+    /// Git treats a missing index file as an empty index.
     pub fn index(&self) -> Result<Index, TinygitError> {
-        Index::open(self.index_path())
+        let path = self.index_path();
+
+        if path.exists() {
+            Index::open(path)
+        } else {
+            Ok(Index::new(path))
+        }
     }
 }
 

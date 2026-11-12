@@ -1,6 +1,6 @@
 //! This module deals with the storage and parsing of refs (`.git/refs`)
 
-use std::path::Path;
+use std::{io::prelude::Write, path::Path};
 
 use winnow::{
     ModalResult, Parser,
@@ -10,7 +10,7 @@ use winnow::{
 
 use crate::{
     TinygitError,
-    ende::Decode,
+    ende::{Decode, Encode},
     object::hash::{ObjectHash, parse_object_hash_str},
     parsing::Stream,
 };
@@ -68,6 +68,17 @@ impl Decode for RefPointer {
             opt(newline),
         )
         .parse_next(input)
+    }
+}
+
+impl Encode for RefPointer {
+    fn encode<W: Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
+        match self {
+            RefPointer::Hash(hash) => write!(writer, "{}", hash),
+            RefPointer::Symbolic(r#ref) => write!(writer, "ref: {}", r#ref),
+        }?;
+
+        Ok(())
     }
 }
 

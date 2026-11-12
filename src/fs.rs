@@ -1,11 +1,6 @@
 //! This module contains items that deal with file names.
 
-use crate::{
-    TinygitError,
-    ende::Decode,
-    ende::Encode,
-    parsing::Stream,
-};
+use crate::{TinygitError, ende::Decode, ende::Encode, parsing::Stream};
 use std::{fmt::Display, path::PathBuf};
 use winnow::{ModalResult, Parser, combinator::terminated, token::take_until};
 
@@ -27,6 +22,10 @@ use winnow::{ModalResult, Parser, combinator::terminated, token::take_until};
 pub struct FileName(String);
 
 impl FileName {
+    pub fn try_new(name: String) -> Result<Self, TinygitError> {
+        Ok(Self(name))
+    }
+
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
@@ -39,7 +38,8 @@ impl Decode for FileName {
             .map(str::from_utf8)
             .verify_map(Result::ok)
             .map(str::to_owned)
-            .map(FileName)
+            .map(FileName::try_new)
+            .verify_map(Result::ok)
             .parse_next(input)
     }
 }

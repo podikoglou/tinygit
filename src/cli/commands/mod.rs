@@ -1,4 +1,5 @@
 pub mod add;
+pub mod commit;
 pub mod hash_object;
 pub mod index_pack;
 pub mod log;
