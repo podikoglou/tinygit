@@ -188,6 +188,21 @@ impl Store {
         self.loose.encode_object(object)
     }
 
+    /// Writes an [Object] and returns its hash.
+    ///
+    /// An object that already exists is not an error.
+    pub fn write_object(&self, object: &Object) -> Result<ObjectHash, TinygitError> {
+        let raw_object = RawObject::try_from(object.clone())?;
+        let hash = raw_object.clone().hash()?;
+
+        match self.encode_object(&raw_object) {
+            Err(TinygitError::ObjectExists) => {}
+            other => other?,
+        };
+
+        Ok(hash)
+    }
+
     /// Gets a handle to the `packed-refs` database
     pub fn ref_db(&self) -> Result<Arc<RefsDb>, TinygitError> {
         self.refs_db
