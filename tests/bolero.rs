@@ -459,20 +459,16 @@ mod generators {
 
     fn file_name() -> impl ValueGenerator<Output = FileName> {
         produce::<String>()
-            .filter_gen(|s| !s.is_empty() && !s.contains('\0'))
             .map_gen(|s| FileName::try_new(s).expect("FileName::try_new is infallible"))
     }
 
     fn name() -> impl ValueGenerator<Output = Name> {
         produce::<String>()
-            .filter_gen(|s| !s.contains(" <"))
             .map_gen(|s| Name::try_new(s.into()).expect("Name::try_new is infallible"))
     }
 
     fn email() -> impl ValueGenerator<Output = Email> {
-        produce::<String>()
-            .filter_gen(|s| !s.contains('>'))
-            .map_gen(|s| Email::new(s.into()))
+        produce::<String>().map_gen(|s| Email::new(s.into()))
     }
 
     fn identity() -> impl ValueGenerator<Output = Identity> {
@@ -483,6 +479,7 @@ mod generators {
         (0i64..2_000_000_000i64, -720i32..=840i32).filter_map_gen(|(secs, offset_minutes)| {
             let offset = FixedOffset::east_opt(offset_minutes * 60)?;
             let datetime = DateTime::from_timestamp(secs, 0)?.with_timezone(&offset);
+
             Timestamp::try_new(datetime).ok()
         })
     }
@@ -498,7 +495,6 @@ mod generators {
 
     fn property() -> impl ValueGenerator<Output = (String, String)> {
         (produce::<String>(), produce::<String>())
-            .filter_gen(|(key, _)| !key.is_empty() && !key.contains([' ', '\n']))
     }
 
     #[derive(Clone, Debug)]
@@ -558,7 +554,7 @@ mod generators {
     pub fn tag() -> impl ValueGenerator<Output = Tag> {
         (
             (hash(), object_type()),
-            produce::<String>().filter_gen(|name| !name.is_empty() && !name.contains('\n')),
+            produce::<String>(),
             (produce::<bool>(), identity(), timestamp())
                 .map_gen(|(some, identity, timestamp)| some.then_some((identity, timestamp))),
             produce::<String>(),
