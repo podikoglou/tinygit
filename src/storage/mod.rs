@@ -264,7 +264,13 @@ impl Store {
 
     /// Sets the pointer of a [Ref] in the repository.
     pub fn set_reference(&self, name: &RefName, pointer: RefPointer) -> Result<(), TinygitError> {
-        let mut file = File::create(self.ref_path(name))?;
+        let path = self.ref_path(name);
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let mut file = File::create(path)?;
 
         pointer.encode(&mut file)?;
 
