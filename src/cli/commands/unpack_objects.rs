@@ -17,7 +17,7 @@ impl UnpackObjectsCommand {
     pub fn run(self) -> Result<(), TinygitError> {
         let Self { file } = self;
 
-        let repo = Repo::open(env::current_dir()?)?;
+        let repo = Repo::open_closest(env::current_dir()?)?;
 
         let pack_path = PathBuf::from(file);
         let idx_path = pack_path.with_extension("idx");

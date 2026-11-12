@@ -75,7 +75,7 @@ impl LogCommand {
             Either::Right(w) => w,
         };
 
-        let repo = Repo::open(env::current_dir()?)?;
+        let repo = Repo::open_closest(env::current_dir()?)?;
 
         let mut queue: BinaryHeap<QueueEntry> = BinaryHeap::default();
         let mut visited: HashSet<ObjectHash> = HashSet::default();

@@ -21,7 +21,7 @@ impl CommitCommand {
     pub fn run(self) -> Result<(), TinygitError> {
         let CommitCommand { message } = self;
 
-        let repo = Repo::open(env::current_dir()?)?;
+        let repo = Repo::open_closest(env::current_dir()?)?;
 
         // figure out identity
         // TODO: actual identity management

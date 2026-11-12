@@ -30,7 +30,7 @@ impl LsObjectsCommand {
             pretty,
             pretty_2,
         } = self;
-        let repo = Repo::open(env::current_dir()?)?;
+        let repo = Repo::open_closest(env::current_dir()?)?;
 
         let objects = if buckets.is_empty() {
             Either::Left(repo.store.objects()?)
