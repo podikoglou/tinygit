@@ -4,7 +4,7 @@
 use bolero::{TypeGenerator, ValueGenerator, check, one_value_of, produce};
 use nutype::nutype;
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, BTreeSet},
     fs, iter,
     path::Path,
     process::{Command, Output},
@@ -23,10 +23,35 @@ use winnow::{
 #[derive(Debug, Clone, TypeGenerator)]
 struct Name(#[generator(produce::<String>().with().len(1..=255).chars('A'..='z'))] String);
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Modification {
+    Insert { offset: usize, bytes: Vec<u8> },
+    Delete { offset: usize, size: usize },
+}
+
+impl Modification {
+    fn apply(&self, contents: &mut Vec<u8>) {
+        match self {
+            Modification::Insert { offset, bytes } => {
+                assert!(*offset <= contents.len(), "Insert offset out of bounds");
+                contents.splice(*offset..*offset, bytes.iter().copied());
+            }
+            Modification::Delete { offset, size } => {
+                assert!(
+                    *offset + *size <= contents.len(),
+                    "Delete range out of bounds"
+                );
+                contents.drain(*offset..*offset + *size);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, EnumDiscriminants)]
 #[strum_discriminants(derive(TypeGenerator))]
 enum Op {
     Create(Name, Vec<u8>),
+    Modify(Name, Modification),
     GitAdd(Vec<Name>),
     GitRm(Vec<Name>),
 }
@@ -38,11 +63,11 @@ impl TypeGenerator for Sequence {
     fn generate<D: bolero::Driver>(driver: &mut D) -> Option<Self> {
         let mut seq: Vec<Op> = Vec::default();
 
-        // working tree
-        let mut working: HashSet<String> = HashSet::default();
+        // working tree: file path -> file contents
+        let mut working: BTreeMap<String, Vec<u8>> = BTreeMap::default();
 
         // tracked files
-        let mut index: HashSet<String> = HashSet::default();
+        let mut index: BTreeSet<String> = BTreeSet::default();
 
         let n = (0..32usize).generate(driver)?;
 
@@ -51,8 +76,9 @@ impl TypeGenerator for Sequence {
 
             kinds.push(OpDiscriminants::Create);
 
-            // `git add` is valid for any file that exists in the working tree.
+            // modifying or staging is valid for any file that exists in the working tree.
             if !working.is_empty() {
+                kinds.push(OpDiscriminants::Modify);
                 kinds.push(OpDiscriminants::GitAdd);
             }
 
@@ -68,12 +94,42 @@ impl TypeGenerator for Sequence {
                     let name = Name::generate(driver)?;
                     let contents = <Vec<u8> as TypeGenerator>::generate(driver)?;
 
-                    working.insert(name.0.clone());
+                    working.insert(name.0.clone(), contents.clone());
 
                     Op::Create(name, contents)
                 }
+                OpDiscriminants::Modify => {
+                    let names: Vec<String> = working.keys().cloned().collect();
+                    let name = Name(one_value_of(&names[..]).generate(driver)?);
+                    let contents = working
+                        .get_mut(&name.0)
+                        .expect("file must exist in working tree");
+
+                    let is_insert = if contents.is_empty() {
+                        true
+                    } else {
+                        <bool as TypeGenerator>::generate(driver)?
+                    };
+
+                    let delta = if is_insert {
+                        let offset = (0..=contents.len()).generate(driver)?;
+                        let bytes = <Vec<u8> as TypeGenerator>::generate(driver)?;
+
+                        Modification::Insert { offset, bytes }
+                    } else {
+                        let offset = (0..contents.len()).generate(driver)?;
+                        let max_size = contents.len() - offset;
+                        let size = (0..=max_size).generate(driver)?;
+
+                        Modification::Delete { offset, size }
+                    };
+
+                    delta.apply(contents);
+
+                    Op::Modify(name, delta)
+                }
                 OpDiscriminants::GitAdd => {
-                    let names: Vec<String> = working.iter().cloned().collect();
+                    let names: Vec<String> = working.keys().cloned().collect();
                     let name = Name(one_value_of(&names[..]).generate(driver)?);
 
                     index.insert(name.0.clone());
@@ -85,7 +141,7 @@ impl TypeGenerator for Sequence {
                     let name = Name(one_value_of(&names[..]).generate(driver)?);
 
                     assert!(
-                        working.remove(&name.0),
+                        working.remove(&name.0).is_some(),
                         "name should exist in the working tree"
                     );
                     assert!(index.remove(&name.0), "name should exist in the index");
@@ -99,6 +155,14 @@ impl TypeGenerator for Sequence {
 
         Some(Self::new(seq))
     }
+}
+
+fn run_tinygit(dir: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_tinygit"))
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("should be able to run tinygit")
 }
 
 fn run_git(dir: &Path, args: &[&str]) -> Output {
@@ -267,38 +331,88 @@ fn expected_index_entries(dir: &Path) -> Vec<Entry> {
     entries
 }
 
+fn run_op(path: &Path, op: &Op) {
+    match op {
+        Op::Create(name, contents) => {
+            fs::write(path.join(&name.0), contents).expect("should be able to write file");
+        }
+        Op::Modify(name, delta) => {
+            let file_path = path.join(&name.0);
+            let mut contents = fs::read(&file_path).expect("should be able to read file to modify");
+            delta.apply(&mut contents);
+            fs::write(&file_path, contents).expect("should be able to write modified file");
+        }
+        Op::GitAdd(names) => {
+            let out = run_git(
+                path,
+                &iter::once("add")
+                    .chain(names.iter().map(|x| x.0.as_str()))
+                    .collect::<Vec<&str>>(),
+            );
+            assert!(out.status.success(), "git add shouldn't fail");
+        }
+        Op::GitRm(names) => {
+            let out = run_git(
+                path,
+                &["rm", "-f"]
+                    .into_iter()
+                    .chain(names.iter().map(|x| x.0.as_str()))
+                    .collect::<Vec<&str>>(),
+            );
+
+            assert!(out.status.success(), "git rm shouldn't fail");
+        }
+    }
+}
+
 /// Creates a repository with the real Git implementation, and applies the generated operations.
 fn run_ops(path: &Path, ops: &Sequence) {
     run_git(path, &["init"]);
 
     for op in ops.clone().into_inner() {
-        match op {
-            Op::Create(name, contents) => {
-                fs::write(path.join(&name.0), contents).expect("should be able to write file");
-            }
-            Op::GitAdd(names) => {
-                let out = run_git(
-                    path,
-                    &iter::once("add")
-                        .chain(names.iter().map(|x| x.0.as_str()))
-                        .collect::<Vec<&str>>(),
-                );
-                assert!(out.status.success(), "git add shouldn't fail");
-            }
-            Op::GitRm(names) => {
-                let out = run_git(
-                    path,
-                    &["rm", "-f"]
-                        .into_iter()
-                        .chain(names.iter().map(|x| x.0.as_str()))
-                        .collect::<Vec<&str>>(),
-                );
-
-                assert!(out.status.success(), "git rm shouldn't fail");
-            }
-        };
+        run_op(path, &op);
     }
 }
+
+fn run_op_tinygit(path: &Path, op: &Op) {
+    match op {
+        Op::Create(name, contents) => {
+            fs::write(path.join(&name.0), contents).expect("should be able to write file");
+        }
+        Op::Modify(name, delta) => {
+            let file_path = path.join(&name.0);
+            let mut contents = fs::read(&file_path).expect("should be able to read file to modify");
+            delta.apply(&mut contents);
+            fs::write(&file_path, contents).expect("should be able to write modified file");
+        }
+        Op::GitAdd(names) => {
+            let out = run_tinygit(
+                path,
+                &iter::once("add")
+                    .chain(names.iter().map(|x| x.0.as_str()))
+                    .collect::<Vec<&str>>(),
+            );
+            assert!(
+                out.status.success(),
+                "tinygit add shouldn't fail: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        Op::GitRm(names) => {
+            let out = run_git(
+                path,
+                &["rm", "-f"]
+                    .into_iter()
+                    .chain(names.iter().map(|x| x.0.as_str()))
+                    .collect::<Vec<&str>>(),
+            );
+
+            assert!(out.status.success(), "git rm shouldn't fail");
+        }
+    }
+}
+
+
 
 #[test]
 fn fuzz_index_parsing() {
@@ -363,3 +477,67 @@ fn fuzz_index_roundtrip() {
     });
 }
 
+/// Tests random sequences of git operations by running them once in a directory using git, and
+/// running them in another directory using tinygit. Asserts the contents of the index are the same
+/// (minus the things that can't be the same, like the timestamps and inodes)
+#[test]
+fn fuzz_index_differential_add() {
+    check!().with_type::<Sequence>().for_each(|ops| {
+        let git_dir = TempDir::new().unwrap();
+        let tinygit_dir = TempDir::new().unwrap();
+
+        run_git(git_dir.path(), &["init"]);
+        run_git(tinygit_dir.path(), &["init"]);
+
+        let indexed = |entries: Vec<Entry>| -> Vec<Entry> {
+            let mut entries = entries;
+            entries.sort_by(|left, right| left.path.cmp(&right.path));
+            entries
+        };
+
+        let content_view = |entries: Vec<Entry>| -> Vec<(String, u32, String, u16)> {
+            entries
+                .into_iter()
+                .map(|entry| (entry.path, entry.mode, entry.hash, entry.flags))
+                .collect()
+        };
+
+        for op in ops.clone().into_inner() {
+            run_op(git_dir.path(), &op);
+            run_op_tinygit(tinygit_dir.path(), &op);
+
+            let tinygit_index_path = tinygit_dir.path().join(".git/index");
+
+            if tinygit_index_path.exists() {
+                let tinygit_view = indexed(
+                    Index::open(tinygit_index_path)
+                        .expect("tinygit's index should parse")
+                        .entries()
+                        .map(Entry::from)
+                        .collect(),
+                );
+                let ls_files_view = indexed(expected_index_entries(tinygit_dir.path()));
+                assert_eq!(
+                    tinygit_view, ls_files_view,
+                    "tinygit internal index parse must match git ls-files on tinygit dir after op: {:?}",
+                    op
+                );
+
+                let git_view = indexed(expected_index_entries(git_dir.path()));
+                assert_eq!(
+                    content_view(git_view),
+                    content_view(tinygit_view),
+                    "git index and tinygit index content must match after op: {:?}",
+                    op
+                );
+            } else {
+                let git_view = indexed(expected_index_entries(git_dir.path()));
+                assert!(
+                    git_view.is_empty(),
+                    "tinygit index does not exist, but git index is not empty after op: {:?}",
+                    op
+                );
+            }
+        }
+    });
+}
