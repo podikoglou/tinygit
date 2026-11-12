@@ -94,6 +94,9 @@ pub enum TinygitError {
     #[error("Invalid file name")]
     InvalidFileName,
 
+    #[error("Nested path is not supported yet: {0}")]
+    NestedPathNotSupported(String),
+
     #[error("No git directory")]
     NoGitDirectory,
 

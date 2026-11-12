@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs::{self, File},
     path::PathBuf,
     sync::{Arc, RwLock},
@@ -10,10 +11,12 @@ use crate::{
     TinygitError,
     ende::Encode,
     error::ParserContext,
+    fs::FileName,
     object::{
         Object,
         commit::Commit,
         hash::{HashPrefix, ObjectHash},
+        tree::{Tree, TreeEntry, TreeKey},
     },
     storage::{
         index::Index,
@@ -201,6 +204,31 @@ impl Store {
         };
 
         Ok(hash)
+    }
+
+    /// Writes the index as a tree object and returns its hash.
+    ///
+    /// Equivalent to `git write-tree`.
+    pub fn write_tree(&self) -> Result<ObjectHash, TinygitError> {
+        let mut entries = BTreeMap::new();
+
+        for entry in self.index()?.entries() {
+            // TODO: build nested trees instead of rejecting
+            if entry.path_name.iter().any(|byte| *byte == b'/') {
+                return Err(TinygitError::NestedPathNotSupported(
+                    entry.path_name.to_string(),
+                ));
+            }
+
+            let key = TreeKey::new(
+                FileName::try_new(entry.path_name.to_string())?,
+                entry.mode.raw() as u16,
+            );
+
+            entries.insert(key, TreeEntry::new(entry.hash.clone()));
+        }
+
+        self.write_object(&Object::Tree(Tree::new(entries)))
     }
 
     /// Gets a handle to the `packed-refs` database
