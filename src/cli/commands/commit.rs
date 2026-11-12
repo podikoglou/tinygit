@@ -42,7 +42,7 @@ impl CommitCommand {
             (identity.clone(), timestamp.clone()),
             (identity, timestamp),
         ) {
-            Err(TinygitError::NothingToCommit) => {
+            Err(TinygitError::EmptyTree) => {
                 println!("nothing to commit");
 
                 // TODO: error code

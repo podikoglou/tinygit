@@ -407,7 +407,7 @@ fn second_commit_uses_first_commit_as_parent() {
 }
 
 #[test]
-fn commit_with_empty_index_returns_nothing_to_commit() {
+fn commit_with_empty_index_returns_empty_tree() {
     let dir = tempfile::tempdir().unwrap();
     let repo = Repo::new(dir.path()).expect("should be able to create repository");
 
@@ -420,7 +420,7 @@ fn commit_with_empty_index_returns_nothing_to_commit() {
         )
         .expect_err("commit should fail on an empty index");
 
-    assert!(matches!(err, TinygitError::NothingToCommit));
+    assert!(matches!(err, TinygitError::EmptyTree));
 }
 
 #[test]

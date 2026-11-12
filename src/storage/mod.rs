@@ -236,7 +236,7 @@ impl Store {
         committer: (Identity, Timestamp),
     ) -> Result<ObjectHash, TinygitError> {
         if self.index()?.entries().next().is_none() {
-            return Err(TinygitError::NothingToCommit);
+            return Err(TinygitError::EmptyTree);
         }
 
         let tree = self.write_tree()?;
