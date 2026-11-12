@@ -1,13 +1,13 @@
 use std::fs::{self, File};
 
-use tinygit::{Repo, TinygitError, object::Object};
+use tinygit::{Repo, TinygitError, object::Object, storage::reference::RefPointer};
 
 #[test]
 fn repo_new_dir_structure() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path();
 
-    let _repo = Repo::new(path).expect("should be able to create repository");
+    let repo = Repo::new(path).expect("should be able to create repository");
 
     // assert .git structure
     assert!(path.join(".git").exists(), ".git should exist");
@@ -18,6 +18,17 @@ fn repo_new_dir_structure() {
     assert!(
         path.join(".git/objects/pack").exists(),
         ".git/objects/pack should exist"
+    );
+
+    // a fresh repository should be on an unborn branch
+    let head = repo
+        .store
+        .reference(&"HEAD".into())
+        .expect("should be able to read HEAD");
+    assert_eq!(
+        head.pointer,
+        RefPointer::Symbolic("refs/heads/main".into()),
+        "HEAD should point to refs/heads/main"
     );
 }
 

@@ -14,6 +14,7 @@ use crate::{
         Store,
         index::{Flags, Index, IndexEntry, Mode, ObjectType},
         object::RawObject,
+        reference::RefPointer,
     },
 };
 
@@ -49,7 +50,12 @@ impl Repo {
         fs::create_dir_all(path.join(".git/refs/heads"))?;
 
         let store = Store::open(path.join(".git"))?;
-        // TODO: make HEAD reference
+
+        // a fresh repository starts on an unborn branch
+        store.set_reference(
+            &"HEAD".into(),
+            RefPointer::Symbolic("refs/heads/main".into()),
+        )?;
 
         Ok(Self { store, path })
     }
