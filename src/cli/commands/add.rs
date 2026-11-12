@@ -14,7 +14,7 @@ pub struct AddCommand {
 
 impl AddCommand {
     pub fn run(self) -> Result<(), TinygitError> {
-        let repo = Repo::open(env::current_dir()?)?;
+        let repo = Repo::open_closest(env::current_dir()?)?;
 
         if !self.files.iter().all(|path| path.exists()) {
             return Err(TinygitError::InvalidFileName);
