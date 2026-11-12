@@ -277,6 +277,17 @@ impl Store {
         Ok(())
     }
 
+    /// Moves `HEAD` to `hash`.
+    ///
+    /// If HEAD is symbolic, this moves the target branch.
+    /// If HEAD is detached, this moves HEAD itself.
+    pub fn set_head(&self, hash: ObjectHash) -> Result<(), TinygitError> {
+        match self.reference(&"HEAD".into())?.pointer {
+            RefPointer::Symbolic(target) => self.set_reference(&target, RefPointer::Hash(hash)),
+            RefPointer::Hash(_) => self.set_reference(&"HEAD".into(), RefPointer::Hash(hash)),
+        }
+    }
+
     /// Recursively resolve a [RefPointer] to a the [ObjectHash] of the object it points to.
     pub fn resolve_reference(&self, pointer: &RefPointer) -> Result<ObjectHash, TinygitError> {
         match pointer {
