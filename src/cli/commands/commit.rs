@@ -37,10 +37,11 @@ impl CommitCommand {
 
         let timestamp = Timestamp::try_new_rounded_up(utc_time)?;
 
-        match repo
-            .store
-            .commit(message, (identity.clone(), timestamp.clone()), (identity, timestamp))
-        {
+        match repo.store.commit(
+            message,
+            (identity.clone(), timestamp.clone()),
+            (identity, timestamp),
+        ) {
             Err(TinygitError::NothingToCommit) => {
                 println!("nothing to commit");
 
