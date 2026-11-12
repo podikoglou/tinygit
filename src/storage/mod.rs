@@ -214,70 +214,18 @@ impl Store {
     ///
     /// Equivalent to `git write-tree`.
     pub fn write_tree(&self) -> Result<ObjectHash, TinygitError> {
-        fn build(
-            store: &Store,
-            entries: &[(String, u16, ObjectHash)],
-        ) -> Result<ObjectHash, TinygitError> {
-            let mut tree = BTreeMap::new();
-            let mut i = 0;
+        let mut entries = BTreeMap::new();
 
-            while i < entries.len() {
-                let (path, mode, hash) = &entries[i];
+        for entry in self.index()?.entries() {
+            let key = TreeKey::new(
+                FileName::try_new(entry.path_name.to_string())?,
+                entry.mode.raw() as u16,
+            );
 
-                match path.split_once('/') {
-                    None => {
-                        tree.insert(
-                            TreeKey::new(FileName::try_new(path.clone())?, *mode),
-                            TreeEntry::new(hash.clone()),
-                        );
-
-                        i += 1;
-                    }
-                    Some((name, _)) => {
-                        // all entries under `name/` are contiguous, because the index is sorted by
-                        // full path
-                        let prefix = format!("{name}/");
-
-                        let end = entries[i..]
-                            .iter()
-                            .position(|(path, _, _)| !path.starts_with(prefix.as_str()))
-                            .map_or(entries.len(), |offset| i + offset);
-
-                        let sub_entries = entries[i..end]
-                            .iter()
-                            .map(|(path, mode, hash)| {
-                                (path[prefix.len()..].to_owned(), *mode, hash.clone())
-                            })
-                            .collect::<Vec<_>>();
-
-                        let sub_hash = build(store, &sub_entries)?;
-
-                        tree.insert(
-                            TreeKey::new(FileName::try_new(name.to_owned())?, 0o40000),
-                            TreeEntry::new(sub_hash),
-                        );
-
-                        i = end;
-                    }
-                }
-            }
-
-            store.write_object(&Object::Tree(Tree::new(tree)))
+            entries.insert(key, TreeEntry::new(entry.hash.clone()));
         }
 
-        let entries = self
-            .index()?
-            .entries()
-            .map(|entry| {
-                (
-                    entry.path_name.to_string(),
-                    entry.mode.raw() as u16,
-                    entry.hash.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        build(self, &entries)
+        self.write_object(&Object::Tree(Tree::new(entries)))
     }
 
     /// Commits the current index and moves `HEAD`.

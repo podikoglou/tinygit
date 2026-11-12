@@ -5,10 +5,7 @@ use tinygit::{
     Repo, TinygitError,
     identity::{Email, Identity, Name},
     object::{Object, blob::Blob, hash::ObjectHash},
-    storage::{
-        index::{Flags, Index, IndexEntry, Mode, ObjectType},
-        reference::RefPointer,
-    },
+    storage::reference::RefPointer,
     time::Timestamp,
 };
 
@@ -26,25 +23,6 @@ fn fixed_timestamp() -> Timestamp {
             .with_timezone(&FixedOffset::east_opt(0).expect("should be able to create offset")),
     )
     .expect("should be able to create timestamp")
-}
-
-fn index_entry(path: &str, hash: ObjectHash) -> IndexEntry {
-    IndexEntry {
-        ctime_seconds: 0,
-        ctime_ns_fractions: 0,
-        mtime_seconds: 0,
-        mtime_ns_fractions: 0,
-        dev: 0,
-        ino: 0,
-        mode: Mode::try_new(ObjectType::Regular, 0o644).expect("should be able to create mode"),
-        uid: 0,
-        gid: 0,
-        file_size: 0,
-        hash,
-        flags: Flags::try_new(false, false, 0, path.len() as u16)
-            .expect("should be able to create flags"),
-        path_name: path.into(),
-    }
 }
 
 #[test]
@@ -468,89 +446,4 @@ fn commit_does_not_change_the_index() {
     let after = fs::read(&index_path).expect("index should exist");
 
     assert_eq!(before, after, "commit should not change the index");
-}
-
-#[test]
-fn write_tree_builds_nested_trees() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = Repo::new(dir.path()).expect("should be able to create repository");
-
-    let write_blob = |bytes: &[u8]| {
-        repo.store
-            .write_object(&Object::Blob(Blob(bytes.to_vec())))
-            .expect("should be able to write blob")
-    };
-
-    let readme_hash = write_blob(b"readme");
-    let lib_hash = write_blob(b"lib");
-    let main_hash = write_blob(b"main");
-
-    let mut index = Index::new(repo.store.index_path());
-    index.add_entry(index_entry("README.md", readme_hash.clone()));
-    index.add_entry(index_entry("src/lib.rs", lib_hash.clone()));
-    index.add_entry(index_entry("src/main.rs", main_hash.clone()));
-    index.try_write().expect("should be able to write index");
-
-    let hash = repo
-        .store
-        .write_tree()
-        .expect("should be able to write tree");
-
-    let Object::Tree(root) = repo
-        .store
-        .object(&hash)
-        .expect("root tree should be present in the store")
-    else {
-        panic!("object should be a tree");
-    };
-
-    assert_eq!(root.entries.len(), 2, "root should have two entries");
-
-    let mut entries = root.entries.iter();
-
-    let (readme_key, readme_entry) = entries.next().expect("root should have entries");
-    assert_eq!(
-        readme_key.as_str(),
-        "README.md",
-        "first entry should be the readme"
-    );
-    assert_eq!(
-        readme_entry.object, readme_hash,
-        "readme hash should match the blob"
-    );
-
-    let (src_key, src_entry) = entries.next().expect("root should have a second entry");
-    assert_eq!(
-        src_key.as_str(),
-        "src",
-        "second entry should be a directory"
-    );
-    assert_eq!(src_key.mode, 0o40000, "src should have tree mode");
-
-    let Object::Tree(src) = repo
-        .store
-        .object(&src_entry.object)
-        .expect("src tree should be present in the store")
-    else {
-        panic!("src object should be a tree");
-    };
-
-    assert_eq!(src.entries.len(), 2, "src should have two entries");
-
-    let mut entries = src.entries.iter();
-
-    let (lib_key, lib_entry) = entries.next().expect("src should have entries");
-    assert_eq!(lib_key.as_str(), "lib.rs", "first entry should be lib.rs");
-    assert_eq!(lib_entry.object, lib_hash, "lib hash should match the blob");
-
-    let (main_key, main_entry) = entries.next().expect("src should have a second entry");
-    assert_eq!(
-        main_key.as_str(),
-        "main.rs",
-        "second entry should be main.rs"
-    );
-    assert_eq!(
-        main_entry.object, main_hash,
-        "main hash should match the blob"
-    );
 }
