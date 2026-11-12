@@ -274,8 +274,16 @@ impl Store {
     ///
     /// For the sake of doing less bookkeeeping (like trying to keep the index up to date), we don't
     /// store the index in the Store. Instead, it is dynamically read every time this is called.
+    ///
+    /// Git treats a missing index file as an empty index.
     pub fn index(&self) -> Result<Index, TinygitError> {
-        Index::open(self.index_path())
+        let path = self.index_path();
+
+        if path.exists() {
+            Index::open(path)
+        } else {
+            Ok(Index::new(path))
+        }
     }
 }
 

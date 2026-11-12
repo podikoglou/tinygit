@@ -12,7 +12,7 @@ use crate::{
     object::{Object, blob::Blob},
     storage::{
         Store,
-        index::{Flags, Index, IndexEntry, Mode, ObjectType},
+        index::{Flags, IndexEntry, Mode, ObjectType},
         object::RawObject,
         reference::RefPointer,
     },
@@ -116,13 +116,7 @@ impl Repo {
         };
 
         // Git treats a missing index file as an empty index.
-        let index_path = self.store.index_path();
-
-        let mut index = if index_path.exists() {
-            self.store.index()?
-        } else {
-            Index::new(index_path)
-        };
+        let mut index = self.store.index()?;
 
         // add the new entry
         index.add_entry(IndexEntry {
