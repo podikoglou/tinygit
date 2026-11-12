@@ -254,13 +254,19 @@ impl Store {
             Err(err) => return Err(err),
         };
 
+        // `git commit -m` stores the message followed by a newline
+        let mut description: BString = message.into();
+        if !description.ends_with(b"\n") {
+            description.push(b'\n');
+        }
+
         let commit = Commit {
             tree,
             parents,
             author,
             committer,
             extra: vec![],
-            description: message.into(),
+            description,
         };
 
         let hash = self.write_object(&Object::Commit(Box::new(commit)))?;

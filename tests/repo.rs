@@ -330,7 +330,10 @@ fn commit_writes_tree_and_commit_and_moves_head() {
 
     let (commit, head_hash) = repo.store.head().expect("should be able to read HEAD");
     assert_eq!(head_hash, hash, "HEAD should resolve to the commit");
-    assert_eq!(commit.description, "initial commit", "message should match");
+    assert_eq!(
+        commit.description, "initial commit\n",
+        "message should end with a newline"
+    );
     assert_eq!(commit.author.0, fixed_identity(), "author should match");
     assert!(
         commit.parents.is_empty(),
