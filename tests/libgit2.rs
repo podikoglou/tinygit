@@ -5,19 +5,21 @@
 //! passing, if you would run this with `-- --nocapture`, it would show errors. This should be kept
 //! in mind when running this suite.
 
+use chrono::{DateTime, FixedOffset};
 use git2::{
     Commit,
     ObjectType::{self as Git2ObjectType},
     Odb, Oid, ReferenceType, Signature,
 };
 use include_dir::{Dir, include_dir};
-use std::str::FromStr;
+use std::{fs, path::Path, str::FromStr};
 use tinygit::{
     ende::Encode,
     error::ParserContext,
-    identity::{self, Email, Identity},
+    identity::{self, Email, Identity, Name},
     object::{Object, ObjectType as TinygitObjectType, hash::ObjectHash},
     storage::reference::RefPointer,
+    time::Timestamp,
 };
 
 use crate::common::{unpack_git2_repo, unpack_repo};
@@ -715,6 +717,136 @@ fn head_matches() {
             "HEAD commit messages match"
         );
     }
+}
+
+#[test]
+fn commit_creation_matches() {
+    let git_dir = tempfile::tempdir().unwrap();
+    let tinygit_dir = tempfile::tempdir().unwrap();
+
+    let git_repo = git2::Repository::init(git_dir.path()).expect("should be able to init git repo");
+    let tinygit_libgit2 =
+        git2::Repository::init(tinygit_dir.path()).expect("should be able to init tinygit repo");
+    let tinygit_repo = tinygit::Repo::open(tinygit_dir.path()).expect("should be able to open repo");
+
+    // give both repositories the same index
+    for (repo, dir) in [
+        (&git_repo, git_dir.path()),
+        (&tinygit_libgit2, tinygit_dir.path()),
+    ] {
+        fs::write(dir.join("hello.txt"), b"hello world").expect("should be able to write file");
+
+        let mut index = repo.index().expect("should be able to get repo index");
+        index
+            .add_path(Path::new("hello.txt"))
+            .expect("libgit2 should be able to add file");
+        index
+            .write()
+            .expect("libgit2 should be able to write index");
+    }
+
+    let index_path = tinygit_dir.path().join(".git/index");
+    let index_before = fs::read(&index_path).expect("tinygit index should exist");
+
+    let tinygit_tree = tinygit_repo
+        .store
+        .write_tree()
+        .expect("tinygit should write a tree");
+
+    let oracle_tree = git_repo
+        .index()
+        .expect("should be able to get repo index")
+        .write_tree()
+        .expect("libgit2 should write a tree");
+
+    assert_eq!(tinygit_tree, oid_to_hash(&oracle_tree), "tree hashes match");
+
+    let identity = Identity::new(
+        Name::try_new("Unknown".into()).expect("should be able to create name"),
+        Email::new("your.email@soon.com".into()),
+    );
+    let timestamp = Timestamp::try_new(
+        DateTime::from_timestamp(1_700_000_000, 0)
+            .expect("should be able to create datetime")
+            .with_timezone(&FixedOffset::east_opt(0).expect("should be able to create offset")),
+    )
+    .expect("should be able to create timestamp");
+
+    let tinygit_commit = tinygit_repo
+        .store
+        .commit(
+            "initial commit",
+            (identity.clone(), timestamp.clone()),
+            (identity, timestamp),
+        )
+        .expect("tinygit should commit");
+
+    let index_after = fs::read(&index_path).expect("tinygit index should exist");
+    assert_eq!(
+        index_before, index_after,
+        "commit should not change the index"
+    );
+
+    let signature = Signature::new(
+        "Unknown",
+        "your.email@soon.com",
+        &git2::Time::new(1_700_000_000, 0),
+    )
+    .expect("should be able to create signature");
+
+    let tree = git_repo
+        .find_tree(oracle_tree)
+        .expect("libgit2 should find the tree");
+
+    let oracle_commit = git_repo
+        .commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            "initial commit\n",
+            &tree,
+            &[],
+        )
+        .expect("libgit2 should commit");
+
+    assert_eq!(
+        tinygit_commit,
+        oid_to_hash(&oracle_commit),
+        "commit hashes match"
+    );
+
+    let raw_commit = tinygit_repo
+        .store
+        .raw_object(&tinygit_commit)
+        .expect("tinygit should find the commit object");
+
+    let oracle_bytes = git_repo
+        .commit_create_buffer(&signature, &signature, "initial commit\n", &tree, &[])
+        .expect("libgit2 should serialize the commit");
+
+    assert_eq!(
+        raw_commit.bytes, oracle_bytes[..],
+        "serialized commit bytes match"
+    );
+
+    let tinygit_head = tinygit_repo
+        .store
+        .resolve_reference(
+            &tinygit_repo
+                .store
+                .reference(&"HEAD".into())
+                .expect("tinygit should read HEAD")
+                .pointer,
+        )
+        .expect("tinygit should resolve HEAD");
+
+    let oracle_head = git_repo
+        .head()
+        .expect("libgit2 should find HEAD")
+        .target()
+        .expect("HEAD should have a target");
+
+    assert_eq!(tinygit_head, oid_to_hash(&oracle_head), "HEAD targets match");
 }
 
 mod fuzz {
