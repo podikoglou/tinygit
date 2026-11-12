@@ -47,7 +47,6 @@ fn index_entry(path: &str, hash: ObjectHash) -> IndexEntry {
     }
 }
 
-
 #[test]
 fn repo_new_dir_structure() {
     let dir = tempfile::tempdir().unwrap();
@@ -214,7 +213,10 @@ fn write_tree_on_empty_index_returns_empty_tree_hash() {
     let dir = tempfile::tempdir().unwrap();
     let repo = Repo::new(dir.path()).expect("should be able to create repository");
 
-    let hash = repo.store.write_tree().expect("should be able to write tree");
+    let hash = repo
+        .store
+        .write_tree()
+        .expect("should be able to write tree");
 
     assert_eq!(
         hash.to_string(),
@@ -246,7 +248,10 @@ fn write_tree_contains_staged_entries() {
         (entry.hash.clone(), entry.mode.raw() as u16)
     };
 
-    let hash = repo.store.write_tree().expect("should be able to write tree");
+    let hash = repo
+        .store
+        .write_tree()
+        .expect("should be able to write tree");
 
     let Object::Tree(tree) = repo
         .store
@@ -258,7 +263,11 @@ fn write_tree_contains_staged_entries() {
 
     assert_eq!(tree.entries.len(), 1, "tree should have one entry");
 
-    let (key, entry) = tree.entries.iter().next().expect("tree should have an entry");
+    let (key, entry) = tree
+        .entries
+        .iter()
+        .next()
+        .expect("tree should have an entry");
     assert_eq!(key.as_str(), "hello.txt", "entry name should match");
     assert_eq!(key.mode, mode, "entry mode should match the index");
     assert_eq!(entry.object, blob_hash, "entry hash should match the index");
@@ -482,7 +491,10 @@ fn write_tree_builds_nested_trees() {
     index.add_entry(index_entry("src/main.rs", main_hash.clone()));
     index.try_write().expect("should be able to write index");
 
-    let hash = repo.store.write_tree().expect("should be able to write tree");
+    let hash = repo
+        .store
+        .write_tree()
+        .expect("should be able to write tree");
 
     let Object::Tree(root) = repo
         .store
@@ -508,7 +520,11 @@ fn write_tree_builds_nested_trees() {
     );
 
     let (src_key, src_entry) = entries.next().expect("root should have a second entry");
-    assert_eq!(src_key.as_str(), "src", "second entry should be a directory");
+    assert_eq!(
+        src_key.as_str(),
+        "src",
+        "second entry should be a directory"
+    );
     assert_eq!(src_key.mode, 0o40000, "src should have tree mode");
 
     let Object::Tree(src) = repo
@@ -528,6 +544,13 @@ fn write_tree_builds_nested_trees() {
     assert_eq!(lib_entry.object, lib_hash, "lib hash should match the blob");
 
     let (main_key, main_entry) = entries.next().expect("src should have a second entry");
-    assert_eq!(main_key.as_str(), "main.rs", "second entry should be main.rs");
-    assert_eq!(main_entry.object, main_hash, "main hash should match the blob");
+    assert_eq!(
+        main_key.as_str(),
+        "main.rs",
+        "second entry should be main.rs"
+    );
+    assert_eq!(
+        main_entry.object, main_hash,
+        "main hash should match the blob"
+    );
 }
