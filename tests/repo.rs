@@ -1,6 +1,30 @@
 use std::fs::{self, File};
 
-use tinygit::{Repo, TinygitError, object::Object, storage::reference::RefPointer};
+use chrono::{DateTime, FixedOffset};
+use tinygit::{
+    Repo, TinygitError,
+    identity::{Email, Identity, Name},
+    object::{Object, blob::Blob, hash::ObjectHash},
+    storage::reference::RefPointer,
+    time::Timestamp,
+};
+
+fn fixed_identity() -> Identity {
+    Identity::new(
+        Name::try_new("Unknown".into()).expect("should be able to create name"),
+        Email::new("your.email@soon.com".into()),
+    )
+}
+
+fn fixed_timestamp() -> Timestamp {
+    Timestamp::try_new(
+        DateTime::from_timestamp(1_700_000_000, 0)
+            .expect("should be able to create datetime")
+            .with_timezone(&FixedOffset::east_opt(0).expect("should be able to create offset")),
+    )
+    .expect("should be able to create timestamp")
+}
+
 
 #[test]
 fn repo_new_dir_structure() {
@@ -135,4 +159,279 @@ fn stage_nonexistent_file_returns_invalid_file_name() {
         .expect_err("should fail for nonexistent file");
 
     assert!(matches!(err, TinygitError::InvalidFileName));
+}
+
+#[test]
+fn write_object_writes_blob_and_returns_hash() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let blob = Object::Blob(Blob(b"hello world".to_vec()));
+    let hash = repo
+        .store
+        .write_object(&blob)
+        .expect("should be able to write object");
+
+    assert_eq!(
+        hash.to_string(),
+        "95d09f2b10159347eece71399a7e2e907ea3df4f",
+        "blob hash should match Git's"
+    );
+
+    // writing an object that already exists is not an error
+    let again = repo
+        .store
+        .write_object(&blob)
+        .expect("writing an existing object should not fail");
+
+    assert_eq!(again, hash, "hash should not change");
+}
+
+#[test]
+fn write_tree_on_empty_index_returns_empty_tree_hash() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let hash = repo.store.write_tree().expect("should be able to write tree");
+
+    assert_eq!(
+        hash.to_string(),
+        "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        "empty tree hash should match Git's"
+    );
+
+    let object = repo
+        .store
+        .object(&hash)
+        .expect("tree should be present in the store");
+
+    assert!(matches!(object, Object::Tree(_)), "object should be a tree");
+}
+
+#[test]
+fn write_tree_contains_staged_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let file_path = dir.path().join("hello.txt");
+    fs::write(&file_path, b"hello world").expect("should be able to write file");
+    repo.stage(&file_path).expect("should stage file");
+
+    let (blob_hash, mode) = {
+        let index = repo.store.index().expect("should be able to read index");
+        let entry = index.entries().next().expect("index should have an entry");
+
+        (entry.hash.clone(), entry.mode.raw() as u16)
+    };
+
+    let hash = repo.store.write_tree().expect("should be able to write tree");
+
+    let Object::Tree(tree) = repo
+        .store
+        .object(&hash)
+        .expect("tree should be present in the store")
+    else {
+        panic!("object should be a tree");
+    };
+
+    assert_eq!(tree.entries.len(), 1, "tree should have one entry");
+
+    let (key, entry) = tree.entries.iter().next().expect("tree should have an entry");
+    assert_eq!(key.as_str(), "hello.txt", "entry name should match");
+    assert_eq!(key.mode, mode, "entry mode should match the index");
+    assert_eq!(entry.object, blob_hash, "entry hash should match the index");
+}
+
+#[test]
+fn set_head_moves_symbolic_head_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let hash = ObjectHash::from([1u8; 20]);
+    repo.store
+        .set_head(hash.clone())
+        .expect("should be able to set HEAD");
+
+    let head = repo
+        .store
+        .reference(&"HEAD".into())
+        .expect("should be able to read HEAD");
+    assert_eq!(
+        head.pointer,
+        RefPointer::Symbolic("refs/heads/main".into()),
+        "HEAD should stay symbolic"
+    );
+
+    let main = repo
+        .store
+        .reference(&"refs/heads/main".into())
+        .expect("should be able to read the branch");
+    assert_eq!(
+        main.pointer,
+        RefPointer::Hash(hash),
+        "branch should point to the hash"
+    );
+}
+
+#[test]
+fn set_head_moves_detached_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let old = ObjectHash::from([1u8; 20]);
+    let new = ObjectHash::from([2u8; 20]);
+
+    repo.store
+        .set_reference(&"HEAD".into(), RefPointer::Hash(old))
+        .expect("should be able to detach HEAD");
+
+    repo.store
+        .set_head(new.clone())
+        .expect("should be able to set HEAD");
+
+    let head = repo
+        .store
+        .reference(&"HEAD".into())
+        .expect("should be able to read HEAD");
+    assert_eq!(
+        head.pointer,
+        RefPointer::Hash(new),
+        "HEAD should point to the new hash"
+    );
+}
+
+#[test]
+fn commit_writes_tree_and_commit_and_moves_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let file_path = dir.path().join("hello.txt");
+    fs::write(&file_path, b"hello world").expect("should be able to write file");
+    repo.stage(&file_path).expect("should stage file");
+
+    let hash = repo
+        .store
+        .commit(
+            "initial commit",
+            (fixed_identity(), fixed_timestamp()),
+            (fixed_identity(), fixed_timestamp()),
+        )
+        .expect("should be able to commit");
+
+    let branch = repo
+        .store
+        .reference(&"refs/heads/main".into())
+        .expect("should be able to read the branch");
+    assert_eq!(
+        branch.pointer,
+        RefPointer::Hash(hash.clone()),
+        "branch should point to the commit"
+    );
+
+    let (commit, head_hash) = repo.store.head().expect("should be able to read HEAD");
+    assert_eq!(head_hash, hash, "HEAD should resolve to the commit");
+    assert_eq!(commit.description, "initial commit", "message should match");
+    assert_eq!(commit.author.0, fixed_identity(), "author should match");
+    assert!(
+        commit.parents.is_empty(),
+        "first commit should have no parents"
+    );
+
+    let Object::Tree(tree) = repo
+        .store
+        .object(&commit.tree)
+        .expect("tree should be present in the store")
+    else {
+        panic!("commit tree should be a tree object");
+    };
+
+    assert_eq!(tree.entries.len(), 1, "tree should have one entry");
+}
+
+#[test]
+fn second_commit_uses_first_commit_as_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let file_path = dir.path().join("hello.txt");
+    fs::write(&file_path, b"hello world").expect("should be able to write file");
+    repo.stage(&file_path).expect("should stage file");
+
+    let first = repo
+        .store
+        .commit(
+            "first",
+            (fixed_identity(), fixed_timestamp()),
+            (fixed_identity(), fixed_timestamp()),
+        )
+        .expect("should be able to commit");
+
+    let second = repo
+        .store
+        .commit(
+            "second",
+            (fixed_identity(), fixed_timestamp()),
+            (fixed_identity(), fixed_timestamp()),
+        )
+        .expect("should be able to commit");
+
+    let (commit, _) = repo.store.head().expect("should be able to read HEAD");
+
+    assert_eq!(
+        commit.parents,
+        vec![first],
+        "second commit should have the first as its only parent"
+    );
+
+    let branch = repo
+        .store
+        .reference(&"refs/heads/main".into())
+        .expect("should be able to read the branch");
+    assert_eq!(
+        branch.pointer,
+        RefPointer::Hash(second),
+        "branch should point to the second commit"
+    );
+}
+
+#[test]
+fn commit_with_empty_index_returns_nothing_to_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let err = repo
+        .store
+        .commit(
+            "empty",
+            (fixed_identity(), fixed_timestamp()),
+            (fixed_identity(), fixed_timestamp()),
+        )
+        .expect_err("commit should fail on an empty index");
+
+    assert!(matches!(err, TinygitError::NothingToCommit));
+}
+
+#[test]
+fn commit_does_not_change_the_index() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let file_path = dir.path().join("hello.txt");
+    fs::write(&file_path, b"hello world").expect("should be able to write file");
+    repo.stage(&file_path).expect("should stage file");
+
+    let index_path = repo.store.index_path();
+    let before = fs::read(&index_path).expect("index should exist");
+
+    repo.store
+        .commit(
+            "initial commit",
+            (fixed_identity(), fixed_timestamp()),
+            (fixed_identity(), fixed_timestamp()),
+        )
+        .expect("should be able to commit");
+
+    let after = fs::read(&index_path).expect("index should exist");
+
+    assert_eq!(before, after, "commit should not change the index");
 }
