@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 argh = "0.1.19"
+bitfield = "0.20.0"
 bstr = "1.13.1"
 chrono = "0.4.45"
 crc32fast = "1.5.3"

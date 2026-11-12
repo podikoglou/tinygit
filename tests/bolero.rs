@@ -7,13 +7,16 @@ use tinygit::{
     identity::Identity,
     object::{commit::Commit, parse_header, tag::Tag, tree::Tree},
     parsing::Stream,
-    storage::object::{
-        loose::CompressedLooseObject,
-        packed::{
-            DeltifiedObject, PackedObject, PackedObjectHeader, PackedObjectType, PackfileHeader,
-            UndeltifiedObject, base_object,
-            delta::{CopyInstruction, Delta, InsertInstruction, Instruction},
-            size,
+    storage::{
+        index::{Flags, IndexEntry, Mode, ObjectType},
+        object::{
+            loose::CompressedLooseObject,
+            packed::{
+                DeltifiedObject, PackedObject, PackedObjectHeader, PackedObjectType,
+                PackfileHeader, UndeltifiedObject, base_object,
+                delta::{CopyInstruction, Delta, InsertInstruction, Instruction},
+                size,
+            },
         },
     },
     time::Timestamp,
@@ -337,6 +340,61 @@ fn fuzz_packed_object() {
             let parsed_2 = PackedObject::decode_bytes(&buf).expect("should be parseable");
 
             assert_eq!(parsed_2, parsed);
+        }
+    });
+}
+
+#[test]
+fn mode_properties() {
+    check!().for_each(|input: &[u8]| {
+        if let Ok(mode) = Mode::decode_bytes(input) {
+            match mode.object_type() {
+                ObjectType::Regular => {
+                    assert!(mode.permission() == 0o0755 || mode.permission() == 0o0644)
+                }
+                ObjectType::SymbolicLink | ObjectType::GitLink => {
+                    assert_eq!(mode.permission(), 0)
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn mode_roundtrip() {
+    check!().for_each(|input: &[u8]| {
+        if let Ok(parsed) = Mode::decode_bytes(input) {
+            let mut buf = Vec::default();
+
+            parsed.encode(&mut buf).expect("should be encodable");
+
+            assert_eq!(buf, input);
+        }
+    });
+}
+
+#[test]
+fn flags_roundtrip() {
+    check!().for_each(|input: &[u8]| {
+        if let Ok(parsed) = Flags::decode_bytes(input) {
+            let mut buf = Vec::default();
+
+            parsed.encode(&mut buf).expect("should be encodable");
+
+            assert_eq!(buf, input);
+        }
+    });
+}
+
+#[test]
+fn index_entry_roundtrip() {
+    check!().for_each(|input: &[u8]| {
+        if let Ok(parsed) = IndexEntry::decode_bytes(input) {
+            let mut buf = Vec::default();
+
+            parsed.encode(&mut buf).expect("should be encodable");
+
+            assert_eq!(buf, input);
         }
     });
 }
