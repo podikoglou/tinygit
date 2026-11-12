@@ -1,18 +1,10 @@
-use std::{collections::BTreeMap, env};
+use std::env;
 
 use argh::FromArgs;
 use chrono::{Local, Utc};
 use tinygit::{
     Repo, TinygitError,
-    ende::Decode,
-    fs::FileName,
     identity::{Email, Identity, Name},
-    object::{
-        Object,
-        commit::Commit,
-        tree::{Tree, TreeEntry, TreeKey},
-    },
-    storage::{object::RawObject, reference::RefPointer},
     time::Timestamp,
 };
 
@@ -31,53 +23,6 @@ impl CommitCommand {
 
         let repo = Repo::open(env::current_dir()?)?;
 
-        // open index
-        let index = repo.store.index()?;
-        let index_entries = index.entries().collect::<Vec<_>>();
-
-        if index_entries.is_empty() {
-            println!("nothing to commit");
-
-            // TODO: error code
-            return Ok(());
-        }
-
-        // convert index entries to tree entries (TreeKey, TreeEntry)
-        let tree_entries = index_entries
-            .into_iter()
-            .map(|entry| {
-                let key = TreeKey::new(
-                    FileName::try_new(entry.path_name.to_string())?,
-                    entry.mode.raw() as u16,
-                );
-
-                let entry = TreeEntry::new(entry.hash.clone());
-
-                Ok((key, entry))
-            })
-            .collect::<Result<BTreeMap<_, _>, TinygitError>>()?;
-
-        let tree = Tree::new(tree_entries);
-
-        let tree_object = Object::Tree(tree);
-        let tree_raw = RawObject::try_from(tree_object)?;
-
-        // can we remove this clone? perhaps we can have it returned from encode_object?
-        let tree_hash = tree_raw.clone().hash()?;
-
-        // create tree object
-        match repo.store.encode_object(&tree_raw) {
-            Err(TinygitError::ObjectExists) => {}
-            other => other?,
-        };
-
-        // figure out where to place commit
-        let parents = match repo.store.head() {
-            Ok(head) => vec![head.1],
-            Err(TinygitError::RefNotFound) => vec![],
-            Err(err) => return Err(err),
-        };
-
         // figure out identity
         // TODO: actual identity management
         let identity = Identity::new(
@@ -92,33 +37,17 @@ impl CommitCommand {
 
         let timestamp = Timestamp::try_new_rounded_up(utc_time)?;
 
-        // create commit
-        let commit = Commit {
-            tree: tree_hash,
-            parents,
-            author: (identity.clone(), timestamp.clone()),
-            committer: (identity, timestamp),
-            extra: vec![],
-            description: message.into(),
-        };
+        match repo
+            .store
+            .commit(message, (identity.clone(), timestamp.clone()), (identity, timestamp))
+        {
+            Err(TinygitError::NothingToCommit) => {
+                println!("nothing to commit");
 
-        let commit_object = Object::Commit(Box::new(commit));
-        let commit_object_raw = RawObject::try_from(commit_object)?;
-        let commit_object_hash = commit_object_raw.clone().hash()?;
-
-        repo.store.encode_object(&commit_object_raw)?;
-
-        // update HEAD
-        match &repo.store.reference(&"HEAD".into())?.pointer {
-            RefPointer::Symbolic(r#ref) => repo
-                .store
-                .set_reference(r#ref, RefPointer::Hash(commit_object_hash))?,
-
-            RefPointer::Hash(_) => repo
-                .store
-                .set_reference(&"HEAD".into(), RefPointer::Hash(commit_object_hash))?,
-        };
-
-        Ok(())
+                // TODO: error code
+                Ok(())
+            }
+            result => result.map(|_| ()),
+        }
     }
 }
