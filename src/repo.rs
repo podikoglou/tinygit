@@ -35,6 +35,19 @@ impl Repo {
         Ok(Self { path, store })
     }
 
+    /// Opens the closest repository by traversing up parent directories starting at `path`.
+    pub fn open_closest(path: impl AsRef<Path>) -> Result<Self, TinygitError> {
+        let start = path.as_ref().canonicalize()?;
+
+        for ancestor in start.ancestors() {
+            if ancestor.join(".git").exists() {
+                return Self::open(ancestor);
+            }
+        }
+
+        Err(TinygitError::NoGitDirectory)
+    }
+
     /// Creates a new empty Git repository.
     pub fn new(path: impl Into<PathBuf>) -> Result<Repo, TinygitError> {
         let path = path.into();

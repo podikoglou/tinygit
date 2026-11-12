@@ -447,3 +447,53 @@ fn commit_does_not_change_the_index() {
 
     assert_eq!(before, after, "commit should not change the index");
 }
+
+#[test]
+fn open_closest_finds_repo_at_root() {
+    let dir = tempfile::tempdir().unwrap();
+    Repo::new(dir.path()).expect("should create repo");
+
+    let repo = Repo::open_closest(dir.path()).expect("should find repo at root");
+    assert_eq!(
+        repo.path.canonicalize().unwrap(),
+        dir.path().canonicalize().unwrap()
+    );
+}
+
+#[test]
+fn open_closest_finds_repo_from_nested_subdir() {
+    let dir = tempfile::tempdir().unwrap();
+    Repo::new(dir.path()).expect("should create repo");
+
+    let nested = dir.path().join("a").join("b").join("c");
+    fs::create_dir_all(&nested).expect("should create nested dirs");
+
+    let repo = Repo::open_closest(&nested).expect("should find repo from nested dir");
+    assert_eq!(
+        repo.path.canonicalize().unwrap(),
+        dir.path().canonicalize().unwrap()
+    );
+}
+
+#[test]
+fn open_closest_finds_repo_from_file_path() {
+    let dir = tempfile::tempdir().unwrap();
+    Repo::new(dir.path()).expect("should create repo");
+
+    let nested_file = dir.path().join("subdir").join("file.txt");
+    fs::create_dir_all(nested_file.parent().unwrap()).expect("should create subdir");
+    fs::write(&nested_file, b"content").expect("should create file");
+
+    let repo = Repo::open_closest(&nested_file).expect("should find repo from file path");
+    assert_eq!(
+        repo.path.canonicalize().unwrap(),
+        dir.path().canonicalize().unwrap()
+    );
+}
+
+#[test]
+fn open_closest_fails_outside_repo() {
+    let dir = tempfile::tempdir().unwrap();
+    let err = Repo::open_closest(dir.path()).expect_err("should fail when no .git is found");
+    assert!(matches!(err, TinygitError::NoGitDirectory));
+}
