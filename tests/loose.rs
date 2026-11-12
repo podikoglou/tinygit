@@ -9,9 +9,7 @@ use tinygit::{
 
 mod fixtures {
     use tinygit::{
-        ende::Decode,
-        error::ParserContext,
-        storage::object::loose::CompressedLooseObject,
+        ende::Decode, error::ParserContext, storage::object::loose::CompressedLooseObject,
     };
 
     #[test]
@@ -211,249 +209,16 @@ mod fixtures {
 }
 
 mod roundtrip {
-    use hegel::Generator;
-    use hegel::TestCase;
-
-    use tinygit::ende::Decode;
-    use tinygit::error::ParserContext;
-    use tinygit::object::{Object, ObjectType, hash::ObjectHash, tag::Tag};
-
-    use tinygit::ende::Encode;
-    use tinygit::storage::object::{RawObject, loose::CompressedLooseObject, loose::LooseObject};
-
     use strum::IntoDiscriminant;
-
-    mod generators {
-        use crate::roundtrip::generators;
-
-        use hegel::Generator;
-        use hegel::TestCase;
-        use hegel::extras::chrono::datetimes;
-        use hegel::generators as gs;
-        use std::collections::BTreeMap;
-        use strum::VariantArray;
-        use tinygit::ende::Decode;
-        use tinygit::fs::FileName;
-        use tinygit::identity::Email;
-        use tinygit::identity::Identity;
-        use tinygit::identity::Name;
-        use tinygit::object::ObjectType;
-        use tinygit::object::blob::Blob;
-        use tinygit::object::commit::Commit;
-        use tinygit::object::commit::CommitProperty;
-        use tinygit::object::hash::ObjectHash;
-        use tinygit::object::tag::Tag;
-        use tinygit::object::tree::Tree;
-        use tinygit::object::tree::TreeEntry;
-        use tinygit::object::tree::TreeKey;
-        use tinygit::time::Timestamp;
-
-        #[hegel::composite]
-        pub fn hash(tc: &TestCase) -> ObjectHash {
-            tc.draw(
-                gs::arrays(gs::integers())
-                    .map(|bytes: [u8; 20]| ObjectHash::from(bytes))
-                    .print_as_debug(),
-            )
-        }
-
-        #[hegel::composite]
-        pub fn blob(tc: &TestCase) -> Blob {
-            tc.draw(gs::binary().map(Blob).print_as_debug())
-        }
-
-        #[hegel::composite]
-        pub fn tree_entry(tc: &TestCase) -> TreeEntry {
-            let hash = tc.draw(generators::hash().print_as_debug());
-
-            TreeEntry { object: hash }
-        }
-
-        #[hegel::composite]
-        pub fn tree(tc: &TestCase) -> Tree {
-            let key = gs::text()
-                .map(|str| FileName::decode_str(&str))
-                .filter(|e| e.is_ok())
-                .map(Result::unwrap)
-                .print_as_debug();
-
-            let value = generators::tree_entry().print_as_debug();
-
-            tc.draw(
-                gs::btree_maps(key, value)
-                    .map(|map: BTreeMap<FileName, TreeEntry>| {
-                        map.into_iter()
-                            .map(|(name, entry)| (TreeKey::new(name, 0o100644), entry))
-                            .collect::<BTreeMap<TreeKey, TreeEntry>>()
-                    })
-                    .map(Tree::new)
-                    .print_as_debug(),
-            )
-        }
-
-        #[hegel::composite]
-        pub fn name(tc: &TestCase) -> Name {
-            tc.draw(
-                gs::text()
-                    .map(|x| x.into())
-                    .map(Name::try_new)
-                    .filter(Result::is_ok)
-                    .map(Result::unwrap)
-                    .print_as_debug(),
-            )
-        }
-
-        #[hegel::composite]
-        pub fn email(tc: &TestCase) -> Email {
-            tc.draw(
-                gs::emails()
-                    .map(|x| x.into())
-                    .map(Email::new)
-                    .print_as_debug(),
-            )
-        }
-
-        #[hegel::composite]
-        pub fn identity(tc: &TestCase) -> Identity {
-            let name = tc.draw(name().print_as_debug());
-            let email = tc.draw(email().print_as_debug());
-
-            Identity::new(name, email)
-        }
-
-        #[hegel::composite]
-        pub fn property(tc: &TestCase) -> CommitProperty {
-            tc.draw(gs::tuples!(gs::text(), gs::text()))
-        }
-
-        #[hegel::composite]
-        pub fn object_type(tc: &TestCase) -> ObjectType {
-            tc.draw(gs::sampled_from(ObjectType::VARIANTS).print_as_debug())
-        }
-
-        #[hegel::composite]
-        pub fn timestamp(tc: &TestCase) -> Timestamp {
-            tc.draw(
-                datetimes()
-                    .map(Timestamp::try_new)
-                    .filter(Result::is_ok)
-                    .map(Result::unwrap)
-                    .print_as_debug(),
-            )
-        }
-
-        #[hegel::composite]
-        pub fn commit(tc: &TestCase) -> Commit {
-            let tree = tc.draw(hash().print_as_debug());
-            let parents = tc.draw(gs::vecs(hash()).print_as_debug());
-            let author = tc.draw(gs::tuples!(identity(), timestamp()).print_as_debug());
-            let committer = tc.draw(gs::tuples!(identity(), timestamp()).print_as_debug());
-            let extra = tc.draw(gs::vecs(property()).print_as_debug());
-            let description = tc.draw(gs::text().map(|x| x.into()).print_as_debug());
-
-            Commit::new(tree, parents, author, committer, extra, description)
-        }
-
-        #[hegel::composite]
-        pub fn tag(tc: &TestCase) -> Tag {
-            let target = tc.draw(gs::tuples!(hash(), object_type()).print_as_debug());
-            let name = tc.draw(gs::text());
-            let tagger = tc.draw(gs::optional(
-                gs::tuples!(identity(), timestamp()).print_as_debug(),
-            ));
-            let description = tc.draw(gs::text());
-
-            Tag::new(target, name, tagger, description)
-        }
-    }
-
-    #[hegel::test]
-    #[ignore = "see https://github.com/podikoglou/tinygit/issues/13"]
-    fn roundtrip_blob(tc: TestCase) {
-        let object = tc.draw(generators::blob().map(Object::from).print_as_debug());
-
-        // write to buffer
-        let mut buf: Vec<u8> = Vec::new();
-        object.encode(&mut buf).unwrap();
-
-        // read back
-        let raw = CompressedLooseObject::decode_bytes(&buf)
-            .unwrap()
-            .into_inner()
-            .into_inner();
-
-        let read_blob = raw
-            .into_object(ParserContext::None)
-            .expect("should be able to parse");
-
-        assert_eq!(read_blob, object);
-    }
-
-    #[hegel::test]
-    #[ignore = "see https://github.com/podikoglou/tinygit/issues/13"]
-    fn roundtrip_tree(tc: TestCase) {
-        let object = tc.draw(generators::tree().map(Object::from).print_as_debug());
-
-        // write to buffer
-        let mut buf: Vec<u8> = Vec::new();
-        object.encode(&mut buf).unwrap();
-
-        // read back
-        let raw = CompressedLooseObject::decode_bytes(&buf)
-            .unwrap()
-            .into_inner()
-            .into_inner();
-
-        let read_tree = raw
-            .into_object(ParserContext::None)
-            .expect("should be able to parse");
-
-        assert_eq!(read_tree, object);
-    }
-
-    #[hegel::test]
-    #[ignore = "see https://github.com/podikoglou/tinygit/issues/13"]
-    fn roundtrip_commit(tc: TestCase) {
-        let object = tc.draw(generators::commit().map(Object::from).print_as_debug());
-
-        // write to buffer
-        let mut buf: Vec<u8> = Vec::new();
-        object.encode(&mut buf).unwrap();
-
-        // read back
-        let raw = CompressedLooseObject::decode_bytes(&buf)
-            .unwrap()
-            .into_inner()
-            .into_inner();
-
-        let read_commit = raw
-            .into_object(ParserContext::None)
-            .expect("should be able to parse");
-
-        assert_eq!(read_commit, object);
-    }
-
-    #[hegel::test]
-    #[ignore = "see https://github.com/podikoglou/tinygit/issues/13"]
-    fn roundtrip_tag(tc: TestCase) {
-        let object = tc.draw(generators::tag().map(Object::from).print_as_debug());
-
-        // write to buffer
-        let mut buf: Vec<u8> = Vec::new();
-        object.encode(&mut buf).unwrap();
-
-        // read back
-        let raw = CompressedLooseObject::decode_bytes(&buf)
-            .unwrap()
-            .into_inner()
-            .into_inner();
-
-        let read_tag = raw
-            .into_object(ParserContext::None)
-            .expect("should be able to parse");
-
-        assert_eq!(read_tag, object);
-    }
+    use tinygit::{
+        ende::{Decode, Encode},
+        error::ParserContext,
+        object::{Object, ObjectType, hash::ObjectHash, tag::Tag},
+        storage::object::{
+            RawObject,
+            loose::{CompressedLooseObject, LooseObject},
+        },
+    };
 
     #[test]
     fn roundtrip_tag_with_empty_description() {
@@ -468,12 +233,9 @@ mod roundtrip {
         object.encode(&mut raw).unwrap();
 
         let mut buf = Vec::new();
-        CompressedLooseObject::new(LooseObject::new(RawObject::new(
-            object.discriminant(),
-            raw,
-        )))
-        .encode(&mut buf)
-        .unwrap();
+        CompressedLooseObject::new(LooseObject::new(RawObject::new(object.discriminant(), raw)))
+            .encode(&mut buf)
+            .unwrap();
 
         let raw = CompressedLooseObject::decode_bytes(&buf)
             .unwrap()
