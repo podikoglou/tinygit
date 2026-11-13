@@ -462,8 +462,7 @@ mod generators {
     }
 
     fn name() -> impl ValueGenerator<Output = Name> {
-        produce::<String>()
-            .map_gen(|s| Name::try_new(s.into()).expect("Name::try_new is infallible"))
+        produce::<String>().filter_map_gen(|s| Name::try_new(s.into()).ok())
     }
 
     fn email() -> impl ValueGenerator<Output = Email> {

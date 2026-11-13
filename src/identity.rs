@@ -65,7 +65,7 @@ impl Display for Identity {
 
 #[nutype(
     sanitize(with = |x| x.trim_ascii().into()),
-    validate(predicate = |_x| true),
+    validate(predicate = |x| !x.is_empty() && !x.contains(&0x00)),
     derive(Debug, PartialEq, Eq, Clone, Display, AsRef, Deref)
 )]
 pub struct Name(BString);
