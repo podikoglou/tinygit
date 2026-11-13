@@ -11,6 +11,7 @@ use hex::FromHexError;
 use thiserror::Error;
 
 use crate::{
+    fs::FileNameError,
     identity::{EmailError, NameError},
     time::TimestampError,
 };
@@ -96,6 +97,9 @@ pub enum TinygitError {
 
     #[error("Invalid file name")]
     InvalidFileName,
+
+    #[error("Invalid file name: {0}")]
+    FileNameError(#[from] FileNameError),
 
     #[error("No git directory")]
     NoGitDirectory,
