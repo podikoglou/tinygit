@@ -35,7 +35,7 @@ fn oid_to_hash(oid: &Oid) -> ObjectHash {
 fn signature_to_identity(signature: Signature) -> Identity {
     Identity {
         name: identity::Name::try_new(signature.name().unwrap().into()).unwrap(),
-        email: Email::new(signature.email().unwrap().into()),
+        email: Email::try_new(signature.email().unwrap().into()).unwrap(),
     }
 }
 
@@ -764,7 +764,7 @@ fn commit_creation_matches() {
 
     let identity = Identity::new(
         Name::try_new("Unknown".into()).expect("should be able to create name"),
-        Email::new("your.email@soon.com".into()),
+        Email::try_new("your.email@soon.com".into()).expect("should be able to create email"),
     );
     let timestamp = Timestamp::try_new(
         DateTime::from_timestamp(1_700_000_000, 0)
@@ -893,7 +893,7 @@ mod fuzz {
     fn tinygit_signature() -> ((Identity, Timestamp), (Identity, Timestamp)) {
         let identity = Identity::new(
             IdentityName::try_new("Unknown".into()).expect("should be able to create name"),
-            Email::new("your.email@soon.com".into()),
+            Email::try_new("your.email@soon.com".into()).expect("should be able to create email"),
         );
         let timestamp = Timestamp::try_new(
             DateTime::from_timestamp(1_700_000_000, 0)

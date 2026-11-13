@@ -10,7 +10,10 @@ use std::{
 use hex::FromHexError;
 use thiserror::Error;
 
-use crate::{identity::NameError, time::TimestampError};
+use crate::{
+    identity::{EmailError, NameError},
+    time::TimestampError,
+};
 
 /// Context for parsing used in the error.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,6 +160,9 @@ pub enum TinygitError {
 
     #[error("Invalid identity: {0}")]
     IdentityNameError(#[from] NameError),
+
+    #[error("Invalid identity email: {0}")]
+    IdentityEmailError(#[from] EmailError),
 
     #[error("Invalid timestamp: {0}")]
     TimestampError(#[from] TimestampError),
