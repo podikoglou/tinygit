@@ -458,8 +458,7 @@ mod generators {
     }
 
     fn file_name() -> impl ValueGenerator<Output = FileName> {
-        produce::<String>()
-            .map_gen(|s| FileName::try_new(s).expect("FileName::try_new is infallible"))
+        produce::<String>().filter_map_gen(|s| FileName::try_new(s).ok())
     }
 
     fn name() -> impl ValueGenerator<Output = Name> {
