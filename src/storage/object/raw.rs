@@ -1,6 +1,5 @@
 use std::{fmt::Debug, io::Write};
 
-use flate2::{Compression, write::ZlibEncoder};
 use humansize::{DECIMAL, format_size};
 use sha1::{Digest, Sha1};
 use strum::IntoDiscriminant;

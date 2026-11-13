@@ -9,8 +9,6 @@ use std::io::Write;
 
 use blob::Blob;
 use commit::Commit;
-use flate2::{Compression, write::ZlibEncoder};
-use sha1::{Digest, Sha1};
 use strum::{EnumDiscriminants, EnumIs, EnumString, EnumTryAs, IntoStaticStr, VariantArray};
 use tag::Tag;
 use tree::Tree;
@@ -25,9 +23,8 @@ use winnow::{
 use crate::{
     TinygitError,
     ende::{Decode, Encode},
-    error::ParserContext,
     object::hash::ObjectHash,
-    parsing::{ParseResultExt, Stream},
+    parsing::Stream,
     storage::object::{LazyObject, RawObject},
 };
 

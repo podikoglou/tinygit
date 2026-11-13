@@ -90,8 +90,8 @@ fn prop_timestamp_roundtrip() {
         .with_generator((secs, offset_hours, offset_minutes))
         .for_each(|&(s, h, m)| {
             let total_offset_secs = h * 3600 + if h >= 0 { m * 60 } else { -m * 60 };
-            if let Some(offset) = FixedOffset::east_opt(total_offset_secs) {
-                if let Some(dt) = DateTime::from_timestamp(s, 0) {
+            if let Some(offset) = FixedOffset::east_opt(total_offset_secs)
+                && let Some(dt) = DateTime::from_timestamp(s, 0) {
                     let dt = dt.with_timezone(&offset);
                     if let Ok(ts) = Timestamp::try_new(dt) {
                         let sign = if h >= 0 { '+' } else { '-' };
@@ -102,7 +102,6 @@ fn prop_timestamp_roundtrip() {
                         assert_eq!(parsed, ts);
                     }
                 }
-            }
         });
 }
 

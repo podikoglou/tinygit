@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::{BufWriter, ErrorKind, prelude::Write},
+    io::{ErrorKind, prelude::Write},
     path::PathBuf,
 };
 

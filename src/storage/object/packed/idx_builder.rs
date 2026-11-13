@@ -203,7 +203,7 @@ impl PackIndexBuilder {
 }
 
 impl ObjectDb for PackIndexBuilder {
-    fn raw_object(&self, hash: &ObjectHash) -> Result<RawObject, TinygitError> {
+    fn raw_object(&self, _hash: &ObjectHash) -> Result<RawObject, TinygitError> {
         // we could have an in memory cache that maps hashes to raw objects like we do
         // with offsets, but i believe ref deltas are mostly used when the object is
         // outside the pack, which is a feature we do not yet support and would be hard

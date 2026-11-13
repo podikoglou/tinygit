@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     fs::{self, File},
     path::PathBuf,
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 use once_cell::sync::OnceCell;
@@ -285,7 +285,7 @@ impl Store {
         // try to read as loose
         //
         // NOTE: this will be unpeeled!
-        let path = self.ref_path(&name);
+        let path = self.ref_path(name);
         if path.exists() {
             return Ref::open_loose(path, name);
         }
@@ -297,7 +297,7 @@ impl Store {
 
         let ref_db = self.ref_db().map_err(|_| TinygitError::RefNotFound)?;
 
-        ref_db.lookup(&name).map_err(|_| TinygitError::RefNotFound)
+        ref_db.lookup(name).map_err(|_| TinygitError::RefNotFound)
     }
 
     /// Sets the pointer of a [Ref] in the repository.
@@ -331,7 +331,7 @@ impl Store {
         match pointer {
             RefPointer::Hash(hash) => Ok(hash.to_owned()),
             RefPointer::Symbolic(name) => {
-                let reference = self.reference(name.into())?;
+                let reference = self.reference(name)?;
 
                 self.resolve_reference(&reference.pointer)
             }

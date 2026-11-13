@@ -93,7 +93,7 @@ impl LogCommand {
                     continue;
                 }
 
-                let parent = repo.store.object(&parent_hash)?;
+                let parent = repo.store.object(parent_hash)?;
                 let parent = *parent.try_as_commit().ok_or(TinygitError::UnexpectedType)?;
 
                 queue.push((parent, parent_hash.clone()).into());

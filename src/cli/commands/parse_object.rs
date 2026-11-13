@@ -10,10 +10,7 @@ use tinygit::{
     ende::{Decode, Encode},
     storage::object::loose::CompressedLooseObject,
 };
-use tinygit::{
-    error::ParserContext,
-    storage::object::{RawObject, loose::LooseObject},
-};
+use tinygit::error::ParserContext;
 
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "parse-object")]
