@@ -1,6 +1,5 @@
 ---
 source: tests/loose.rs
-assertion_line: 196
 expression: object
 ---
 Tag(
@@ -9,7 +8,9 @@ Tag(
             ab2b0330d1eb193e5e339c94197998e9baaa8846,
             Commit,
         ),
-        name: "\r",
+        name: TagName(
+            "\r",
+        ),
         tagger: Some(
             (
                 Identity {
