@@ -14,7 +14,7 @@ use winnow::{ModalResult, Parser, combinator::terminated, token::take_until};
 /// use tinygit::fs::FileName;
 /// use tinygit::ende::Decode;
 ///
-/// let name: FileName = FileName::decode_str("foo.rs\0").unwrap();
+/// let name: FileName = FileName::try_new("foo.rs").unwrap();
 ///
 /// assert_eq!(name.as_str(), "foo.rs");
 /// ```
@@ -22,7 +22,16 @@ use winnow::{ModalResult, Parser, combinator::terminated, token::take_until};
 pub struct FileName(String);
 
 impl FileName {
+    /// Creates a new [`FileName`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TinygitError::InvalidFileName`] if `name` is empty.
     pub fn try_new(name: String) -> Result<Self, TinygitError> {
+        if name.is_empty() || name.contains("\0") {
+            return Err(TinygitError::InvalidFileName);
+        }
+
         Ok(Self(name))
     }
 
@@ -66,7 +75,7 @@ impl Encode for FileName {
 
 #[cfg(test)]
 mod test {
-    use crate::{ende::Decode, fs::FileName};
+    use crate::{TinygitError, ende::Decode, fs::FileName};
 
     #[test]
     fn file_name_parses_valid_inputs() {
@@ -81,5 +90,21 @@ mod test {
     fn file_name_rejects_invalid_inputs() {
         assert!(FileName::decode_str("foo.bar").is_err());
         assert!(FileName::decode_str("foo.bar\n").is_err());
+    }
+
+    #[test]
+    fn file_name_try_new_rejects_empty_names() {
+        assert!(matches!(
+            FileName::try_new(String::new()),
+            Err(TinygitError::InvalidFileName)
+        ));
+    }
+
+    #[test]
+    fn file_name_try_new_accepts_non_empty_names() {
+        assert_eq!(
+            FileName::try_new("foo.bar".to_string()).unwrap().as_str(),
+            "foo.bar"
+        );
     }
 }
