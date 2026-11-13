@@ -28,7 +28,7 @@ impl FileName {
     ///
     /// Returns [`TinygitError::InvalidFileName`] if `name` is empty.
     pub fn try_new(name: String) -> Result<Self, TinygitError> {
-        if name.is_empty() {
+        if name.is_empty() || name.contains("\0") {
             return Err(TinygitError::InvalidFileName);
         }
 
