@@ -2,6 +2,48 @@ use tinygit::object::hash::ObjectHash;
 
 mod common;
 
+mod roundtrip {
+    use strum::IntoDiscriminant;
+    use tinygit::{
+        ende::{Decode, Encode},
+        error::ParserContext,
+        object::{Object, ObjectType, hash::ObjectHash, tag::Tag},
+        storage::object::{
+            RawObject,
+            loose::{CompressedLooseObject, LooseObject},
+        },
+    };
+
+    #[test]
+    fn roundtrip_tag_with_empty_description() {
+        let object = Object::from(Tag::new(
+            (ObjectHash::from([0; 20]), ObjectType::Blob),
+            "v1".to_owned(),
+            None,
+            String::new(),
+        ));
+
+        let mut raw = Vec::new();
+        object.encode(&mut raw).unwrap();
+
+        let mut buf = Vec::new();
+        CompressedLooseObject::new(LooseObject::new(RawObject::new(object.discriminant(), raw)))
+            .encode(&mut buf)
+            .unwrap();
+
+        let raw = CompressedLooseObject::decode_bytes(&buf)
+            .unwrap()
+            .into_inner()
+            .into_inner();
+
+        let read_tag = raw
+            .into_object(ParserContext::None)
+            .expect("should be able to parse");
+
+        assert_eq!(read_tag, object);
+    }
+}
+
 #[test]
 fn objects_iter() {
     let (repo, _dir) = include_repo!("fixtures/repos/repo-1.tar");
