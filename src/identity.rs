@@ -65,14 +65,14 @@ impl Display for Identity {
 
 #[nutype(
     sanitize(with = |x| x.trim_ascii().into()),
-    validate(predicate = |x| !x.is_empty() && !x.contains(&0x00)),
+    validate(predicate = |x| !x.contains(&0x00)),
     derive(Debug, PartialEq, Eq, Clone, Display, AsRef, Deref)
 )]
 pub struct Name(BString);
 
 #[nutype(
     sanitize(with = |x| x.trim_ascii().into()),
-    validate(predicate = |x| !x.is_empty() && !x.contains(&0x00)),
+    validate(predicate = |x| !x.contains(&0x00)),
     derive(Debug, PartialEq, Eq, Clone, Display, AsRef, Deref)
 )]
 pub struct Email(BString);

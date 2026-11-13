@@ -100,8 +100,7 @@ impl Decode for Tag {
 }
 
 #[nutype(
-    sanitize(with = |x| x.trim_ascii().into()),
-    validate(predicate = |x| !x.is_empty()),
+    validate(predicate = |x| !x.is_empty() && !x.contains('\n') && !x.contains('\0')),
     derive(Debug, PartialEq, Eq, Clone, Display, AsRef, Deref)
 )]
 pub struct TagName(String);

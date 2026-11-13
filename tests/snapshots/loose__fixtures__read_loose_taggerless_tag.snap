@@ -1,6 +1,5 @@
 ---
 source: tests/loose.rs
-assertion_line: 209
 expression: object
 ---
 Tag(
@@ -9,7 +8,9 @@ Tag(
             2a24ab628aa7b190be32f63dfb6d96f3fb61580a,
             Commit,
         ),
-        name: "v2.6.12-rc5",
+        name: TagName(
+            "v2.6.12-rc5",
+        ),
         tagger: None,
         description: "Linux-2.6.12-rc5 release\n-----BEGIN PGP SIGNATURE-----\nVersion: GnuPG v1.2.4 (GNU/Linux)\n\niD8DBQBCk/HHF3YsRnbiHLsRArQsAJ97eO9U7ZKRxOJO84l9AcALAKvJfwCgsGt0\ndVOL/gCk7M2QYRr8RNxLSmI=\n=vOPg\n-----END PGP SIGNATURE-----\n",
     },
