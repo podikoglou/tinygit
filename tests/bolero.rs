@@ -424,6 +424,7 @@ mod generators {
     use bolero::generator::bolero_generator::Driver;
     use bolero::generator::{ValueGenerator, one_value_of, produce};
     use chrono::{DateTime, FixedOffset};
+    use tinygit::object::tag::TagName;
     use tinygit::{
         fs::FileName,
         identity::{Email, Identity, Name},
@@ -471,6 +472,10 @@ mod generators {
 
     fn identity() -> impl ValueGenerator<Output = Identity> {
         (name(), email()).map_gen(|(name, email)| Identity::new(name, email))
+    }
+
+    fn tag_name() -> impl ValueGenerator<Output = TagName> {
+        produce::<String>().filter_map_gen(|s| TagName::try_new(s).ok())
     }
 
     fn timestamp() -> impl ValueGenerator<Output = Timestamp> {
@@ -552,7 +557,7 @@ mod generators {
     pub fn tag() -> impl ValueGenerator<Output = Tag> {
         (
             (hash(), object_type()),
-            produce::<String>(),
+            tag_name(),
             (produce::<bool>(), identity(), timestamp())
                 .map_gen(|(some, identity, timestamp)| some.then_some((identity, timestamp))),
             produce::<String>(),
