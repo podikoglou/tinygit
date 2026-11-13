@@ -1,6 +1,5 @@
 ---
 source: tests/loose.rs
-assertion_line: 92
 expression: object
 ---
 Commit(
@@ -38,8 +37,12 @@ Commit(
         ),
         extra: [
             (
-                "gpgsig",
-                "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJqc1jACRC1aQ7uu5UhlAAAFfgQACyD2HIkYM5SeaWNsgzpZsVu\nEe6PVbA9tjF5PRY4PJKVXoxt2L/8QLtKWAr0fzYf15LhHTfIvgxuY8GyCzJvJmFb\nGEC3ZAXXd50G76+sMrmll/EHKp8MTcD6iu4v5ixnpKdfggJFFXw1Y6LGPrKXWpQN\nST9rZrvN/IoVLcm7HKo6Npus4DozrkGp12NYlHEo2iSb/QU9JKDE73oWmG4KSE/k\nKY5okZ6ddYMC4Q0nadw2G7H/dCfsHD7K7ZE9IetJYA9crA3C2jQlbuUBcPap6iwd\nvwvouXCE6v1U9ZCgaiUuRWCLmjqYIqJpr78LfA2Asw+3yhByfSQQvOe1lBULBbso\nM1lfCzhUeq7j1q1rJiGWixR8eMz54jTXsAoU8Eggx/HWYRnFb1e4+oX9IomA07Aw\nuDqIkROtfPrYbuP2b7RKT1bII59wPmjgFc2nYZFKGpQOSlKLAzLSjdy01CxnBohc\n5JOmDyKwn/lj4XoJz3VQ247Vk30tK6DCvZrEE4cFRphnOBxfNlEiznRExDYMg6NK\nzjwjZsHy4uHAqxJC6Vw6ngifxuNEH8AlcKy+cbze++EwRFWQdoUWXCnvfrIvOucB\nAe0cZPDDt+dtFfgonZH5CIUi7eUG9aZZKIe+amGZn/FWkBJkARpNYfsea+HGz/ku\nD8E20PgW43McTXpnuP2Y\n=D9mN\n-----END PGP SIGNATURE-----\n",
+                PropertyKey(
+                    "gpgsig",
+                ),
+                PropertyValue(
+                    "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJqc1jACRC1aQ7uu5UhlAAAFfgQACyD2HIkYM5SeaWNsgzpZsVu\nEe6PVbA9tjF5PRY4PJKVXoxt2L/8QLtKWAr0fzYf15LhHTfIvgxuY8GyCzJvJmFb\nGEC3ZAXXd50G76+sMrmll/EHKp8MTcD6iu4v5ixnpKdfggJFFXw1Y6LGPrKXWpQN\nST9rZrvN/IoVLcm7HKo6Npus4DozrkGp12NYlHEo2iSb/QU9JKDE73oWmG4KSE/k\nKY5okZ6ddYMC4Q0nadw2G7H/dCfsHD7K7ZE9IetJYA9crA3C2jQlbuUBcPap6iwd\nvwvouXCE6v1U9ZCgaiUuRWCLmjqYIqJpr78LfA2Asw+3yhByfSQQvOe1lBULBbso\nM1lfCzhUeq7j1q1rJiGWixR8eMz54jTXsAoU8Eggx/HWYRnFb1e4+oX9IomA07Aw\nuDqIkROtfPrYbuP2b7RKT1bII59wPmjgFc2nYZFKGpQOSlKLAzLSjdy01CxnBohc\n5JOmDyKwn/lj4XoJz3VQ247Vk30tK6DCvZrEE4cFRphnOBxfNlEiznRExDYMg6NK\nzjwjZsHy4uHAqxJC6Vw6ngifxuNEH8AlcKy+cbze++EwRFWQdoUWXCnvfrIvOucB\nAe0cZPDDt+dtFfgonZH5CIUi7eUG9aZZKIe+amGZn/FWkBJkARpNYfsea+HGz/ku\nD8E20PgW43McTXpnuP2Y\n=D9mN\n-----END PGP SIGNATURE-----\n",
+                ),
             ),
         ],
         description: "`COPY` with `ORDER_BY` without `PARTITION_BY` (#24525)\n\nI didn\'t get around to doing this, but it was surprisingly a very small\nchange.\n\nCC @Tmonster\n",

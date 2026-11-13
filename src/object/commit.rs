@@ -1,4 +1,5 @@
 use bstr::BString;
+use nutype::nutype;
 use winnow::{
     ModalResult, Parser,
     combinator::{repeat, seq},
@@ -50,10 +51,10 @@ impl Commit {
 
     /// Attempts to get the GPG Signature (including the armor) used to sign this commit.
     #[must_use]
-    pub fn gpg_signature(&self) -> Option<&String> {
+    pub fn gpg_signature(&self) -> Option<&PropertyValue> {
         self.extra
             .iter()
-            .find_map(|(key, value)| if key == "gpgsig" { Some(value) } else { None })
+            .find_map(|(key, value)| (key.as_str() == "gpgsig").then_some(value))
     }
 }
 
@@ -118,13 +119,23 @@ impl Encode for (Identity, Timestamp) {
     }
 }
 
-pub type CommitProperty = (String, String);
+pub type CommitProperty = (PropertyKey, PropertyValue);
+
+#[nutype(
+    sanitize(with = |x| x.trim_ascii().into()),
+    validate(predicate = |x| !x.is_empty() && !x.contains(' ') && !x.contains('\n') && !x.contains('\0')),
+    derive(Debug, PartialEq, Eq, Clone, Display, AsRef, Deref)
+)]
+pub struct PropertyKey(String);
+
+#[nutype(
+    validate(predicate = |x| !x.contains('\0')),
+    derive(Debug, PartialEq, Eq, Clone, Display, AsRef, Deref)
+)]
+pub struct PropertyValue(String);
 
 impl Encode for &CommitProperty {
     fn encode<W: Write>(&self, writer: &mut W) -> Result<(), crate::TinygitError> {
-        // TODO: validation. neither should be empty
-        // the below code assumes they aren't
-
         // write key
         write!(writer, "{} ", self.0)?;
 

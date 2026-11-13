@@ -431,7 +431,7 @@ mod generators {
         object::{
             ObjectType,
             blob::Blob,
-            commit::Commit,
+            commit::{Commit, PropertyKey, PropertyValue},
             hash::ObjectHash,
             tag::Tag,
             tree::{Tree, TreeEntry, TreeKey},
@@ -496,8 +496,11 @@ mod generators {
         ])
     }
 
-    fn property() -> impl ValueGenerator<Output = (String, String)> {
-        (produce::<String>(), produce::<String>())
+    fn property() -> impl ValueGenerator<Output = (PropertyKey, PropertyValue)> {
+        (
+            produce::<String>().filter_map_gen(|s| PropertyKey::try_new(s).ok()),
+            produce::<String>().filter_map_gen(|s| PropertyValue::try_new(s).ok()),
+        )
     }
 
     #[derive(Clone, Debug)]
