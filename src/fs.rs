@@ -14,7 +14,7 @@ use winnow::{ModalResult, Parser, combinator::terminated, token::take_until};
 /// use tinygit::fs::FileName;
 /// use tinygit::ende::Decode;
 ///
-/// let name: FileName = FileName::decode_str("foo.rs\0").unwrap();
+/// let name: FileName = FileName::try_new("foo.rs").unwrap();
 ///
 /// assert_eq!(name.as_str(), "foo.rs");
 /// ```
