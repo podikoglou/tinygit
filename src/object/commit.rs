@@ -54,7 +54,7 @@ impl Commit {
     pub fn gpg_signature(&self) -> Option<&PropertyValue> {
         self.extra
             .iter()
-            .find_map(|(key, value)| (key.as_str() == "gpgsig").then_some(value))
+            .find_map(|(key, value)| if key == "gpgsig" { Some(value) } else { None })
     }
 }
 
@@ -127,6 +127,24 @@ pub type CommitProperty = (PropertyKey, PropertyValue);
     derive(Debug, PartialEq, Eq, Clone, Display, AsRef, Deref)
 )]
 pub struct PropertyKey(String);
+
+impl PartialEq<&str> for PropertyKey {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_ref() == *other
+    }
+}
+
+impl PartialEq<str> for PropertyKey {
+    fn eq(&self, other: &str) -> bool {
+        self.as_ref() == other
+    }
+}
+
+impl PartialEq<PropertyKey> for &str {
+    fn eq(&self, other: &PropertyKey) -> bool {
+        *self == other.as_ref()
+    }
+}
 
 #[nutype(
     validate(predicate = |x| !x.contains('\0')),
