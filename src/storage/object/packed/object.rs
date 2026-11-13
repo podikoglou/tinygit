@@ -158,19 +158,6 @@ impl Encode for UndeltifiedObject {
     fn encode<W: std::io::prelude::Write>(&self, writer: &mut W) -> Result<(), TinygitError> {
         let raw_object = self.as_ref();
 
-        let compressed_buf: Vec<u8> = Vec::default();
-        let mut encoder = ZlibEncoder::new(compressed_buf, Compression::default());
-
-        // NOTE: This bypasses the `RawObject` `Encode` implementation, because that is meant for
-        // loose objects which have a different format. perhaps this is a bad API.
-        // Possible future work: don't implement `Encode` for `RawObject`; have newtypes over it
-        // depending on the way you want to encode it.
-        encoder.write_all(&raw_object.bytes)?;
-
-        let uncompressed_length = encoder.total_in();
-
-        let compressed_buf = encoder.finish()?;
-
         let header = PackedObjectHeader {
             r#type: match raw_object.r#type {
                 // TODO: this should be somewhere else, possibly already a function for it i can't
@@ -180,11 +167,20 @@ impl Encode for UndeltifiedObject {
                 ObjectType::Commit => PackedObjectType::Commit,
                 ObjectType::Tag => PackedObjectType::Tag,
             },
-            length: uncompressed_length,
+            length: raw_object.bytes.len() as u64,
         };
 
         header.encode(writer)?;
-        writer.write_all(&compressed_buf)?;
+
+        let mut encoder = ZlibEncoder::new(writer, Compression::default());
+
+        // NOTE: This bypasses the `RawObject` `Encode` implementation, because that is meant for
+        // loose objects which have a different format. perhaps this is a bad API.
+        // Possible future work: don't implement `Encode` for `RawObject`; have newtypes over it
+        // depending on the way you want to encode it.
+        encoder.write_all(&raw_object.bytes)?;
+
+        encoder.finish()?;
 
         Ok(())
     }
