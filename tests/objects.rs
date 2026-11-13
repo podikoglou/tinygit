@@ -7,7 +7,11 @@ mod roundtrip {
     use tinygit::{
         ende::{Decode, Encode},
         error::ParserContext,
-        object::{Object, ObjectType, hash::ObjectHash, tag::Tag},
+        object::{
+            Object, ObjectType,
+            hash::ObjectHash,
+            tag::{Tag, TagName},
+        },
         storage::object::{
             RawObject,
             loose::{CompressedLooseObject, LooseObject},
@@ -18,7 +22,7 @@ mod roundtrip {
     fn roundtrip_tag_with_empty_description() {
         let object = Object::from(Tag::new(
             (ObjectHash::from([0; 20]), ObjectType::Blob),
-            "v1".to_owned(),
+            TagName::try_new("v1".to_owned()).unwrap(),
             None,
             String::new(),
         ));
