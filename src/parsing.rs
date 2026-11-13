@@ -13,7 +13,7 @@ use winnow::{
 
 use crate::{
     error::{ParseError, ParserContext, TinygitError},
-    object::commit::CommitProperty,
+    object::commit::{CommitProperty, PropertyKey, PropertyValue},
 };
 
 pub type Stream<'a> = LocatingSlice<&'a [u8]>;
@@ -60,6 +60,9 @@ pub fn extra_property(input: &mut Stream<'_>) -> ModalResult<CommitProperty> {
         // name
         take_till(1.., (b' ', b'\n'))
             .map(str::from_utf8)
+            .verify_map(Result::ok)
+            .map(str::to_owned)
+            .map(PropertyKey::try_new)
             .verify_map(Result::ok),
 
         // separator
@@ -84,8 +87,9 @@ pub fn extra_property(input: &mut Stream<'_>) -> ModalResult<CommitProperty> {
             lines.extend(continuation_lines);
             lines.join("\n")
         })
+        .map(PropertyValue::try_new)
+        .verify_map(Result::ok)
     )
-    .map(|(key, value)| (key.to_owned(), value))
     .parse_next(input)
 }
 
@@ -254,6 +258,7 @@ impl<T> ParseNextExt<T> for Result<T, ErrMode<ContextError>> {
 #[cfg(test)]
 mod tests {
     use super::{Stream, extra_property, mode, multiline_property};
+    use crate::object::commit::{PropertyKey, PropertyValue};
     use std::assert_matches;
     use winnow::{Parser, error::ErrMode};
 
@@ -295,8 +300,8 @@ mod tests {
             Ok((
                 &b"\nmessage"[..],
                 (
-                    "change-id".to_string(),
-                    "xnxouqnvmpzvuvkotwynowookslovtno".to_string()
+                    PropertyKey::try_new("change-id".to_string()).unwrap(),
+                    PropertyValue::try_new("xnxouqnvmpzvuvkotwynowookslovtno".to_string()).unwrap()
                 )
             ))
         );
@@ -312,8 +317,8 @@ mod tests {
             Ok((
                 &b""[..],
                 (
-                    "gpgsig".to_string(),
-                    "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJqc1jACRC1aQ7uu5UhlAAAFfgQACyD2HIkYM5SeaWNsgzpZsVu\n-----END PGP SIGNATURE-----\n".to_string()
+                    PropertyKey::try_new("gpgsig".to_string()).unwrap(),
+                    PropertyValue::try_new("-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJqc1jACRC1aQ7uu5UhlAAAFfgQACyD2HIkYM5SeaWNsgzpZsVu\n-----END PGP SIGNATURE-----\n".to_string()).unwrap()
                 )
             ))
         );

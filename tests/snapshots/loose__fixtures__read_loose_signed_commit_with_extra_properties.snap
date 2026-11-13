@@ -1,6 +1,5 @@
 ---
 source: tests/loose.rs
-assertion_line: 131
 expression: object
 ---
 Commit(
@@ -37,12 +36,20 @@ Commit(
         ),
         extra: [
             (
-                "change-id",
-                "ltllyyqoltutvomyxlpvwuoqyrulnqsk",
+                PropertyKey(
+                    "change-id",
+                ),
+                PropertyValue(
+                    "ltllyyqoltutvomyxlpvwuoqyrulnqsk",
+                ),
             ),
             (
-                "gpgsig",
-                "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQSqZBv8LWPkpwq7yJ6mJwKyJtsKIgUCaKNXbQAKCRCmJwKyJtsK\nIkh/AP0QtdF+4X9AF8VRHGRApDJDLvGVeUrvnvcpGH3NCjVz7AD/b2yDvWxPLlut\nwFxNfprJxFErMEH4G//z59GgDU8kMgs=\n=oj+d\n-----END PGP SIGNATURE-----",
+                PropertyKey(
+                    "gpgsig",
+                ),
+                PropertyValue(
+                    "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQSqZBv8LWPkpwq7yJ6mJwKyJtsKIgUCaKNXbQAKCRCmJwKyJtsK\nIkh/AP0QtdF+4X9AF8VRHGRApDJDLvGVeUrvnvcpGH3NCjVz7AD/b2yDvWxPLlut\nwFxNfprJxFErMEH4G//z59GgDU8kMgs=\n=oj+d\n-----END PGP SIGNATURE-----",
+                ),
             ),
         ],
         description: "feat: lazy-load indexing\n",
