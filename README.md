@@ -18,6 +18,8 @@ One of the following subcommands must be present:
     unpack-objects
     log
     index-pack
+    add
+    commit
 ```
 
 
