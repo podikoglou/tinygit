@@ -1,12 +1,13 @@
 # tinygit
-Implementation of (some of) Git in Rust.
+Rust library and CLI implementing a subset of Git.
 
-I started working on this project when I was inspired by what
-[Cursor was doing with Git](https://cursor.com/blog/git-at-any-scale) and got
-to learn about how neat Git really is.
+## Functionality
+- Lazy API over loose objects
+- Packfiles and packfile indexes
+- Refs and branches
+- Index/working tree
 
-This project is in the form of a library + a CLI with *some* of the original
-Git commands (and some that I came up with). Concretely:
+## CLI Usage
 ```
 One of the following subcommands must be present:
     help
@@ -21,7 +22,3 @@ One of the following subcommands must be present:
     add
     commit
 ```
-
-
-## AI Disclaimer
-~90% of the code is human-written.
