@@ -166,7 +166,7 @@ mod tests {
         let alex = (
             Identity::new(
                 Name::try_new("alex".into()).unwrap(),
-                Email::new("alex.podikoglou@gmail.com".into()),
+                Email::try_new("alex.podikoglou@gmail.com".into()).unwrap(),
             ),
             Timestamp::try_new(
                 DateTime::from_timestamp(0, 0)

@@ -466,7 +466,7 @@ mod generators {
     }
 
     fn email() -> impl ValueGenerator<Output = Email> {
-        produce::<String>().map_gen(|s| Email::new(s.into()))
+        produce::<String>().filter_map_gen(|s| Email::try_new(s.into()).ok())
     }
 
     fn identity() -> impl ValueGenerator<Output = Identity> {

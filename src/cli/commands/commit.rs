@@ -27,7 +27,7 @@ impl CommitCommand {
         // TODO: actual identity management
         let identity = Identity::new(
             Name::try_new("Unknown".into())?,
-            Email::new("your.email@soon.com".into()),
+            Email::try_new("your.email@soon.com".into())?,
         );
 
         // figure out timestamp

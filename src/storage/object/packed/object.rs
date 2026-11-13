@@ -411,7 +411,7 @@ mod tests {
 
     use super::{BaseObject, PackedObjectType, base_object};
     use insta::assert_debug_snapshot;
-    
+
     use winnow::Parser;
 
     #[test]

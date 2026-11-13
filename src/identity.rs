@@ -32,7 +32,7 @@ impl Decode for Identity {
     fn parse(input: &mut Stream<'_>) -> ModalResult<Self> {
         seq!(take_until(0.., " <").map(|x: &[u8]| x.into()).map(Name::try_new).verify_map(Result::ok).context(StrContext::Label("name")),
             _: " <",
-            take_until(0.., ">").map(|x: &[u8]| x.into()).map(Email::new).context(StrContext::Label("email")),
+            take_until(0.., ">").map(|x: &[u8]| x.into()).map(Email::try_new).verify_map(Result::ok).context(StrContext::Label("email")),
             _: ">"
         )
         .map(|(name, email)| Identity::new(name, email))
@@ -72,6 +72,7 @@ pub struct Name(BString);
 
 #[nutype(
     sanitize(with = |x| x.trim_ascii().into()),
+    validate(predicate = |x| !x.is_empty() && !x.contains(&0x00)),
     derive(Debug, PartialEq, Eq, Clone, Display, AsRef, Deref)
 )]
 pub struct Email(BString);
@@ -107,7 +108,7 @@ mod tests {
             Identity::decode_bytes(b"John Doe <john@doe.com>").unwrap(),
             Identity::new(
                 Name::try_new("John Doe".into()).unwrap(),
-                Email::new("john@doe.com".into())
+                Email::try_new("john@doe.com".into()).unwrap()
             )
         );
     }

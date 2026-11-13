@@ -12,7 +12,7 @@ use tinygit::{
 fn fixed_identity() -> Identity {
     Identity::new(
         Name::try_new("Unknown".into()).expect("should be able to create name"),
-        Email::new("your.email@soon.com".into()),
+        Email::try_new("your.email@soon.com".into()).expect("should be able to create email"),
     )
 }
 
