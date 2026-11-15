@@ -20,6 +20,7 @@ use crate::{
         commit::Commit,
         hash::{HashPrefix, ObjectHash},
         tree::{Tree, TreeEntry, TreeKey},
+        tree_walk::TreeWalker,
     },
     storage::{
         index::Index,
@@ -188,6 +189,12 @@ impl Store {
 
         // search in loose objects
         self.loose.object(hash)
+    }
+
+    /// Recursively walks the tree `root` in pre-order, yielding directories as
+    /// well as leaves.
+    pub fn walk_tree(&self, root: &ObjectHash) -> Result<TreeWalker<'_>, TinygitError> {
+        TreeWalker::new(self, root)
     }
 
     /// Writes a [RawObject] to the loose object database.
