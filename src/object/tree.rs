@@ -45,10 +45,16 @@ impl TreeKey {
         self.name.as_str()
     }
 
+    /// Returns `true` if this entry is a directory (tree object).
+    #[must_use]
+    pub fn is_tree(&self) -> bool {
+        self.mode == 0o40000
+    }
+
     /// The virtual trailing byte git uses when comparing this entry.
     /// Directories sort as `name + '/'`; everything else as `name + '\0'`.
     fn tail(&self) -> u8 {
-        if self.mode == 0o40000 { b'/' } else { b'\0' }
+        if self.is_tree() { b'/' } else { b'\0' }
     }
 }
 
