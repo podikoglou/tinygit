@@ -33,11 +33,27 @@ impl<'a> TreeWalker<'a> {
     /// Starts a walk at the tree `root`.
     pub fn new(db: &'a dyn ObjectDb, root: &ObjectHash) -> Result<Self, TinygitError> {
         let tree = read_tree(db, root)?;
-        let mut pending = Vec::new();
 
-        push_children(&mut pending, "", tree);
+        let mut walker = Self {
+            db,
+            pending: Vec::default(),
+        };
 
-        Ok(Self { db, pending })
+        walker.push_children("", tree);
+
+        Ok(walker)
+    }
+
+    /// Pushes a tree's entries in reverse order, so `Vec::pop` returns them in
+    /// Git's canonical order.
+    fn push_children(&mut self, prefix: &str, tree: Tree) {
+        for (key, entry) in tree.entries.into_iter().rev() {
+            let mut path = String::with_capacity(prefix.len() + key.as_str().len());
+            path.push_str(prefix);
+            path.push_str(key.as_str());
+
+            self.pending.push(WalkEntry { path, key, entry });
+        }
     }
 }
 
@@ -56,22 +72,10 @@ impl FallibleIterator for TreeWalker<'_> {
             let mut prefix = entry.path.clone();
             prefix.push('/');
 
-            push_children(&mut self.pending, &prefix, tree);
+            self.push_children(&prefix, tree);
         }
 
         Ok(Some(entry))
-    }
-}
-
-/// Pushes a tree's entries in reverse order, so `Vec::pop` returns them in
-/// Git's canonical order.
-fn push_children(pending: &mut Vec<WalkEntry>, prefix: &str, tree: Tree) {
-    for (key, entry) in tree.entries.into_iter().rev() {
-        let mut path = String::with_capacity(prefix.len() + key.as_str().len());
-        path.push_str(prefix);
-        path.push_str(key.as_str());
-
-        pending.push(WalkEntry { path, key, entry });
     }
 }
 
