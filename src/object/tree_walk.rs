@@ -32,12 +32,13 @@ pub struct TreeWalker<'a> {
 impl<'a> TreeWalker<'a> {
     /// Starts a walk at the tree `root`.
     pub fn new(db: &'a dyn ObjectDb, root: &ObjectHash) -> Result<Self, TinygitError> {
-        let tree = read_tree(db, root)?;
-
         let mut walker = Self {
             db,
             pending: Vec::default(),
         };
+
+        // seed the walker
+        let tree = read_tree(db, root)?;
 
         walker.push_children("", tree);
 
