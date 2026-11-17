@@ -86,11 +86,10 @@ impl Repo {
             return Err(TinygitError::NotInRepo);
         }
 
-        // TODO: this has to be relative to the repo's root
         let path_name = &path
-            .file_name()
-            .map(|s| BString::from(s.to_string_lossy().as_bytes()))
-            .ok_or(TinygitError::InvalidFileName)?;
+            .canonicalize()?
+            .strip_prefix(&self.path)
+            .map(|s| BString::from(s.to_string_lossy().as_bytes()))?;
 
         let bytes = fs::read(path)?;
         let object = Object::Blob(Blob(bytes));
