@@ -21,7 +21,7 @@ pub struct WalkEntry {
     pub entry: TreeEntry,
 }
 
-/// A [FallibleIterator] over the entries of a tree and its subtrees.
+/// A [FallibleIterator] over the entries of a [Tree] and its subtrees.
 ///
 /// Entries are yielded in pre-order: a directory comes before its children.
 pub struct TreeWalker<'a> {
