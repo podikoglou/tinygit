@@ -20,12 +20,12 @@ use crate::{
         commit::Commit,
         hash::{HashPrefix, ObjectHash},
         tree::{Tree, TreeEntry, TreeKey},
-        tree_walk::TreeWalker,
     },
     storage::{
         index::Index,
         object::{LazyObject, LooseDb, ObjectDb, ObjectsBucket, RawObject, packed::Packfile},
         reference::{Ref, RefName, RefPointer, db::RefsDb},
+        tree_walk::TreeWalker,
     },
     time::Timestamp,
 };
@@ -33,6 +33,7 @@ use crate::{
 pub mod index;
 pub mod object;
 pub mod reference;
+pub mod tree_walk;
 
 #[derive(Debug, Default)]
 pub struct Store {
@@ -191,8 +192,7 @@ impl Store {
         self.loose.object(hash)
     }
 
-    /// Recursively walks the tree `root` in pre-order, yielding directories as
-    /// well as leaves.
+    /// Recursively walks the tree `root` in pre-order, yielding directories as well as leaves.
     pub fn walk_tree(&self, root: &ObjectHash) -> Result<TreeWalker<'_>, TinygitError> {
         TreeWalker::new(self, root)
     }

@@ -2,7 +2,6 @@ pub mod blob;
 pub mod commit;
 pub mod tag;
 pub mod tree;
-pub mod tree_walk;
 
 pub mod hash;
 
