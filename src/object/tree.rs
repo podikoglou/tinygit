@@ -90,9 +90,10 @@ impl Ord for TreeKey {
 pub struct Tree {
     /// A mapping from [`TreeKey`] -> [`TreeEntry`].
     ///
-    /// A [`BTreeMap`] is used instead of a [`std::collections::HashMap`], because iteration order is
-    /// deterministic, and that's desirable here, since ideally we'd like the program to be able to
-    /// parse an object and print it back out, without anything changing.
+    /// A [`BTreeMap`] is used instead of a [`std::collections::HashMap`], because iteration order
+    /// is deterministic and there is a very specific iteration orde.
+    ///
+    /// See [`TreeKey::partial_cmp`] for iteration order.
     pub entries: BTreeMap<TreeKey, TreeEntry>,
 }
 
