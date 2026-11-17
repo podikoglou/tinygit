@@ -73,7 +73,7 @@ impl Repo {
         Ok(Self { store, path })
     }
 
-    /// Stages a file into the working area.
+    /// Stages a file or directory into the working area.
     pub fn stage(&self, file_path: impl AsRef<Path>) -> Result<(), TinygitError> {
         let path = file_path.as_ref();
 
@@ -86,68 +86,76 @@ impl Repo {
             return Err(TinygitError::NotInRepo);
         }
 
-        let path_name = &path
-            .canonicalize()?
-            .strip_prefix(&self.path)
-            .map(|s| BString::from(s.to_string_lossy().as_bytes()))?;
-
-        let bytes = fs::read(path)?;
-        let object = Object::Blob(Blob(bytes));
-        let raw_object: RawObject = object.try_into()?;
-
-        // create blob
-        match self.store.encode_object(&raw_object) {
-            Err(TinygitError::ObjectExists) => {}
-            other => other?,
-        };
-
-        // get the metadata for the entry (before we even open the index, so as to keep the
-        // critical section as short as possible)
-        let metadata = fs::symlink_metadata(path)?;
-        let ctime = metadata.created()?.duration_since(SystemTime::UNIX_EPOCH)?;
-        let mtime = metadata
-            .modified()?
-            .duration_since(SystemTime::UNIX_EPOCH)?;
-
-        // TODO: support `ObjectType::GitLink`
-        let mode = if metadata.is_symlink() {
-            Mode::try_new(ObjectType::SymbolicLink, 0)
+        if path.is_dir() {
+            // if the path points to a directory, recurse into all entries
+            for entry in fs::read_dir(path)? {
+                self.stage(entry?.path())?;
+            }
         } else {
-            let is_executable = (&metadata.permissions().mode() & 0o100) != 0;
+            // if the path points to a file, stage the file
+            let path_name = &path
+                .canonicalize()?
+                .strip_prefix(&self.path)
+                .map(|s| BString::from(s.to_string_lossy().as_bytes()))?;
 
-            Mode::try_new(
-                ObjectType::Regular,
-                if is_executable { 0o755 } else { 0o644 },
-            )
-        }?;
+            let bytes = fs::read(path)?;
+            let object = Object::Blob(Blob(bytes));
+            let raw_object: RawObject = object.try_into()?;
 
-        let name_length = if path_name.len() > 0xFFF {
-            0xFFF
-        } else {
-            path_name.len() as u16
-        };
+            // create blob
+            match self.store.encode_object(&raw_object) {
+                Err(TinygitError::ObjectExists) => {}
+                other => other?,
+            };
 
-        // Git treats a missing index file as an empty index.
-        let mut index = self.store.index()?;
+            // get the metadata for the entry (before we even open the index, so as to keep the
+            // critical section as short as possible)
+            let metadata = fs::symlink_metadata(path)?;
+            let ctime = metadata.created()?.duration_since(SystemTime::UNIX_EPOCH)?;
+            let mtime = metadata
+                .modified()?
+                .duration_since(SystemTime::UNIX_EPOCH)?;
 
-        // add the new entry
-        index.add_entry(IndexEntry {
-            ctime_seconds: ctime.as_secs().try_into()?,
-            ctime_ns_fractions: ctime.subsec_nanos(),
-            mtime_seconds: mtime.as_secs().try_into()?,
-            mtime_ns_fractions: mtime.subsec_nanos(),
-            dev: metadata.dev().try_into()?,
-            ino: metadata.ino().try_into()?,
-            mode,
-            uid: metadata.uid(),
-            gid: metadata.gid(),
-            file_size: metadata.size().try_into()?,
-            hash: raw_object.hash()?,
-            flags: Flags::try_new(false, false, 0, name_length)?,
-            path_name: path_name.to_owned(),
-        });
+            // TODO: support `ObjectType::GitLink`
+            let mode = if metadata.is_symlink() {
+                Mode::try_new(ObjectType::SymbolicLink, 0)
+            } else {
+                let is_executable = (&metadata.permissions().mode() & 0o100) != 0;
 
-        index.try_write()?;
+                Mode::try_new(
+                    ObjectType::Regular,
+                    if is_executable { 0o755 } else { 0o644 },
+                )
+            }?;
+
+            let name_length = if path_name.len() > 0xFFF {
+                0xFFF
+            } else {
+                path_name.len() as u16
+            };
+
+            // Git treats a missing index file as an empty index.
+            let mut index = self.store.index()?;
+
+            // add the new entry
+            index.add_entry(IndexEntry {
+                ctime_seconds: ctime.as_secs().try_into()?,
+                ctime_ns_fractions: ctime.subsec_nanos(),
+                mtime_seconds: mtime.as_secs().try_into()?,
+                mtime_ns_fractions: mtime.subsec_nanos(),
+                dev: metadata.dev().try_into()?,
+                ino: metadata.ino().try_into()?,
+                mode,
+                uid: metadata.uid(),
+                gid: metadata.gid(),
+                file_size: metadata.size().try_into()?,
+                hash: raw_object.hash()?,
+                flags: Flags::try_new(false, false, 0, name_length)?,
+                path_name: path_name.to_owned(),
+            });
+
+            index.try_write()?;
+        }
 
         Ok(())
     }
