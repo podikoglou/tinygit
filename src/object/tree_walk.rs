@@ -48,9 +48,7 @@ impl<'a> TreeWalker<'a> {
     /// Git's canonical order.
     fn push_children(&mut self, prefix: &str, tree: Tree) {
         for (key, entry) in tree.entries.into_iter().rev() {
-            let mut path = String::with_capacity(prefix.len() + key.as_str().len());
-            path.push_str(prefix);
-            path.push_str(key.as_str());
+            let path = format!("{}{}", prefix, key.as_str());
 
             self.pending.push(WalkEntry { path, key, entry });
         }
