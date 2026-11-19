@@ -1,4 +1,7 @@
-use std::fs::{self, File};
+use std::{
+    fs::{self, File},
+    os::unix::{fs::symlink, net::UnixListener},
+};
 
 use chrono::{DateTime, FixedOffset};
 use tinygit::{
@@ -105,6 +108,59 @@ fn stage_file_creates_blob_and_index_entry() {
         .object(&entries[0].hash)
         .expect("should find object");
     assert!(matches!(obj, Object::Blob(_)));
+}
+
+#[test]
+fn stage_directory_uses_repo_relative_paths_without_following_links() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+    let path = dir.path().join("dir");
+    fs::create_dir_all(path.join("nested")).unwrap();
+    fs::create_dir(path.join("empty")).unwrap();
+    fs::write(path.join("file"), b"outer").unwrap();
+    fs::write(path.join("nested/file"), b"inner").unwrap();
+    symlink("nested", path.join("link")).unwrap();
+
+    repo.stage(&path).expect("should stage directory");
+
+    let index = repo.store.index().expect("should be able to read index");
+    let entries = index
+        .entries()
+        .map(|entry| (entry.path_name.to_string(), entry.mode.raw()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        entries,
+        [
+            ("dir/file".into(), 0o100644),
+            ("dir/link".into(), 0o120000),
+            ("dir/nested/file".into(), 0o100644),
+        ],
+    );
+    let link = index.entries().nth(1).unwrap();
+    let object = repo
+        .store
+        .object(&link.hash)
+        .expect("should find link blob");
+    assert!(matches!(object, Object::Blob(Blob(bytes)) if bytes == b"nested"));
+}
+
+#[test]
+fn failed_directory_walk_keeps_existing_index() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+    let staged = dir.path().join("staged");
+    fs::write(&staged, b"already staged").unwrap();
+    repo.stage(&staged).expect("should stage file");
+    let index_path = repo.store.index_path();
+    let before = fs::read(&index_path).unwrap();
+
+    let path = dir.path().join("dir");
+    fs::create_dir(&path).unwrap();
+    fs::write(path.join("file"), b"not staged").unwrap();
+    let _socket = UnixListener::bind(path.join("socket")).unwrap();
+
+    assert!(repo.stage(&path).is_err());
+    assert_eq!(fs::read(&index_path).unwrap(), before);
 }
 
 #[test]
