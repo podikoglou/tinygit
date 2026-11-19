@@ -81,36 +81,32 @@ impl Repo {
     ///
     /// The index is updated once after all entries have been collected.
     pub fn stage(&self, path: impl AsRef<Path>) -> Result<(), TinygitError> {
+        // A trailing separator would make symlink_metadata follow a directory link.
         let path = path.as_ref().components().as_path();
         let metadata = fs::symlink_metadata(path).map_err(|err| match err.kind() {
             io::ErrorKind::NotFound => TinygitError::InvalidFileName,
             _ => err.into(),
         })?;
+
         let root = self.path.canonicalize()?;
-        let path = if metadata.is_symlink() {
-            let name = path.file_name().ok_or(TinygitError::InvalidFileName)?;
-            let parent = path
-                .parent()
-                .filter(|parent| !parent.as_os_str().is_empty())
-                .unwrap_or(Path::new("."));
-            parent.canonicalize()?.join(name)
-        } else {
-            path.canonicalize()?
-        };
+        let path = canonical_stage_path(path, &metadata)?;
         let relative_path = path
             .strip_prefix(&root)
             .map_err(|_| TinygitError::NotInRepo)?;
 
         let mut entries = Vec::new();
         self.collect_index_entries(&path, relative_path, metadata, &mut entries)?;
+
         if entries.is_empty() {
             return Ok(());
         }
 
         let mut index = self.store.index()?;
+
         for entry in entries {
             index.add_entry(entry);
         }
+
         index.try_write()
     }
 
@@ -121,41 +117,56 @@ impl Repo {
         metadata: fs::Metadata,
         entries: &mut Vec<IndexEntry>,
     ) -> Result<(), TinygitError> {
-        if metadata.is_dir() {
-            for entry in fs::read_dir(path)? {
-                let entry = entry?;
-                self.collect_index_entries(
-                    &entry.path(),
-                    &relative_path.join(entry.file_name()),
-                    entry.metadata()?,
-                    entries,
-                )?;
-            }
+        if !metadata.is_dir() {
+            entries.push(self.stage_file(path, relative_path, &metadata)?);
             return Ok(());
         }
 
+        for child in fs::read_dir(path)? {
+            let child = child?;
+            let child_path = child.path();
+            let child_relative_path = relative_path.join(child.file_name());
+
+            self.collect_index_entries(
+                &child_path,
+                &child_relative_path,
+                child.metadata()?,
+                entries,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn stage_file(
+        &self,
+        path: &Path,
+        relative_path: &Path,
+        metadata: &fs::Metadata,
+    ) -> Result<IndexEntry, TinygitError> {
         let (bytes, mode) = if metadata.is_symlink() {
-            (
-                fs::read_link(path)?.as_os_str().as_encoded_bytes().to_vec(),
-                Mode::try_new(ObjectType::SymbolicLink, 0)?,
-            )
+            let target = fs::read_link(path)?;
+            let mode = Mode::try_new(ObjectType::SymbolicLink, 0)?;
+
+            (target.into_os_string().into_encoded_bytes(), mode)
         } else if metadata.is_file() {
             let permissions = if metadata.permissions().mode() & 0o100 != 0 {
                 0o755
             } else {
                 0o644
             };
-            (
-                fs::read(path)?,
-                Mode::try_new(ObjectType::Regular, permissions)?,
-            )
+            let mode = Mode::try_new(ObjectType::Regular, permissions)?;
+
+            (fs::read(path)?, mode)
         } else {
             return Err(
                 io::Error::new(io::ErrorKind::Unsupported, "cannot stage this file type").into(),
             );
         };
-        let object: RawObject = Object::Blob(Blob(bytes)).try_into()?;
-        match self.store.encode_object(&object) {
+
+        let raw: RawObject = Object::Blob(Blob(bytes)).try_into()?;
+
+        match self.store.encode_object(&raw) {
             Err(TinygitError::ObjectExists) => {}
             other => other?,
         }
@@ -164,10 +175,11 @@ impl Repo {
         let mtime = metadata
             .modified()?
             .duration_since(SystemTime::UNIX_EPOCH)?;
+
         let path_name = BString::from(relative_path.as_os_str().as_encoded_bytes());
         let name_length = path_name.len().min(0xFFF) as u16;
 
-        entries.push(IndexEntry {
+        Ok(IndexEntry {
             ctime_seconds: ctime.as_secs().try_into()?,
             ctime_ns_fractions: ctime.subsec_nanos(),
             mtime_seconds: mtime.as_secs().try_into()?,
@@ -178,11 +190,24 @@ impl Repo {
             uid: metadata.uid(),
             gid: metadata.gid(),
             file_size: metadata.size().try_into()?,
-            hash: object.hash()?,
+            hash: raw.hash()?,
             flags: Flags::try_new(false, false, 0, name_length)?,
             path_name,
-        });
-
-        Ok(())
+        })
     }
+}
+
+fn canonical_stage_path(path: &Path, metadata: &fs::Metadata) -> Result<PathBuf, TinygitError> {
+    if !metadata.is_symlink() {
+        return Ok(path.canonicalize()?);
+    }
+
+    // Resolve the parent but keep the link's own name.
+    let name = path.file_name().ok_or(TinygitError::InvalidFileName)?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+
+    Ok(parent.canonicalize()?.join(name))
 }

@@ -114,9 +114,11 @@ fn stage_file_creates_blob_and_index_entry() {
 fn stage_directory_uses_repo_relative_paths_without_following_links() {
     let dir = tempfile::tempdir().unwrap();
     let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
     let path = dir.path().join("dir");
     fs::create_dir_all(path.join("nested")).unwrap();
     fs::create_dir(path.join("empty")).unwrap();
+
     fs::write(path.join("file"), b"outer").unwrap();
     fs::write(path.join("nested/file"), b"inner").unwrap();
     symlink("nested", path.join("link")).unwrap();
@@ -128,6 +130,7 @@ fn stage_directory_uses_repo_relative_paths_without_following_links() {
         .entries()
         .map(|entry| (entry.path_name.to_string(), entry.mode.raw()))
         .collect::<Vec<_>>();
+
     assert_eq!(
         entries,
         [
@@ -136,7 +139,11 @@ fn stage_directory_uses_repo_relative_paths_without_following_links() {
             ("dir/nested/file".into(), 0o100644),
         ],
     );
-    let link = index.entries().nth(1).unwrap();
+
+    let link = index
+        .entries()
+        .find(|entry| entry.path_name == "dir/link")
+        .expect("should find staged link");
     let object = repo
         .store
         .object(&link.hash)
@@ -148,9 +155,11 @@ fn stage_directory_uses_repo_relative_paths_without_following_links() {
 fn failed_directory_walk_keeps_existing_index() {
     let dir = tempfile::tempdir().unwrap();
     let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
     let staged = dir.path().join("staged");
     fs::write(&staged, b"already staged").unwrap();
     repo.stage(&staged).expect("should stage file");
+
     let index_path = repo.store.index_path();
     let before = fs::read(&index_path).unwrap();
 
