@@ -94,8 +94,7 @@ impl Repo {
             .strip_prefix(&root)
             .map_err(|_| TinygitError::NotInRepo)?;
 
-        let mut entries = Vec::new();
-        self.collect_index_entries(&path, relative_path, metadata, &mut entries)?;
+        let entries = self.collect_index_entries(&path, relative_path, metadata)?;
 
         if entries.is_empty() {
             return Ok(());
@@ -115,27 +114,25 @@ impl Repo {
         path: &Path,
         relative_path: &Path,
         metadata: fs::Metadata,
-        entries: &mut Vec<IndexEntry>,
-    ) -> Result<(), TinygitError> {
+    ) -> Result<Vec<IndexEntry>, TinygitError> {
         if !metadata.is_dir() {
-            entries.push(self.stage_file(path, relative_path, &metadata)?);
-            return Ok(());
+            return Ok(vec![self.stage_file(path, relative_path, &metadata)?]);
         }
 
+        let mut entries = Vec::new();
         for child in fs::read_dir(path)? {
             let child = child?;
             let child_path = child.path();
             let child_relative_path = relative_path.join(child.file_name());
 
-            self.collect_index_entries(
+            entries.extend(self.collect_index_entries(
                 &child_path,
                 &child_relative_path,
                 child.metadata()?,
-                entries,
-            )?;
+            )?);
         }
 
-        Ok(())
+        Ok(entries)
     }
 
     fn stage_file(
