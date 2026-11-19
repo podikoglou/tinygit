@@ -13,4 +13,7 @@ pub mod parsing;
 mod repo;
 pub use repo::Repo;
 
+pub mod ignore;
+pub use ignore::Ignore;
+
 pub mod ende;

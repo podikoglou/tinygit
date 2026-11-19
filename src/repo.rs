@@ -12,14 +12,15 @@ use std::{
 use bstr::BString;
 
 use crate::{
-    TinygitError,
-    object::{Object, blob::Blob},
+    ignore::Ignore,
+    object::{blob::Blob, Object},
     storage::{
-        Store,
         index::{Flags, IndexEntry, Mode, ObjectType},
         object::RawObject,
         reference::RefPointer,
+        Store,
     },
+    TinygitError,
 };
 
 /// A Git repository, containing a `.git` directory.
@@ -95,7 +96,10 @@ impl Repo {
         })?;
 
         let relative_path = self.relative_path(path, metadata.is_symlink())?;
-        let entries = self.collect_entries(path, &relative_path, &metadata)?;
+        let root = self.path.canonicalize()?;
+        let ignore = Ignore::for_dir(&root)?;
+
+        let entries = self.collect_entries(path, &relative_path, &metadata, &ignore)?;
 
         let mut index = self.store.index()?;
         let existing = index.entries().count();
@@ -155,25 +159,33 @@ impl Repo {
         path: &Path,
         relative_path: &Path,
         metadata: &fs::Metadata,
+        ignore: &Ignore,
     ) -> Result<Vec<IndexEntry>, TinygitError> {
         if !metadata.is_dir() {
+            if !relative_path.as_os_str().is_empty() && ignore.is_ignored(relative_path, false) {
+                return Ok(Vec::new());
+            }
             return Ok(vec![self.stage_file(path, relative_path, metadata)?]);
         }
 
         let mut entries = Vec::new();
-        let mut queue = vec![(path.to_path_buf(), relative_path.to_path_buf())];
+        let mut queue = vec![(path.to_path_buf(), relative_path.to_path_buf(), ignore.clone())];
 
-        while let Some((dir_path, dir_relative)) = queue.pop() {
+        while let Some((dir_path, dir_relative, dir_ignore)) = queue.pop() {
             for child in fs::read_dir(&dir_path)? {
                 let child = child?;
                 let child_path = child.path();
                 let child_relative = dir_relative.join(child.file_name());
-                let child_type = child.file_type()?;
+                let child_metadata = fs::symlink_metadata(&child_path)?;
 
-                if child_type.is_dir() {
-                    queue.push((child_path, child_relative));
+                if dir_ignore.is_ignored(&child_relative, child_metadata.is_dir()) {
+                    continue;
+                }
+
+                if child_metadata.is_dir() {
+                    let child_ignore = dir_ignore.child(&child_path)?;
+                    queue.push((child_path, child_relative, child_ignore));
                 } else {
-                    let child_metadata = fs::symlink_metadata(&child_path)?;
                     entries.push(self.stage_file(&child_path, &child_relative, &child_metadata)?);
                 }
             }
