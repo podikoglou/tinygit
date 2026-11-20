@@ -28,6 +28,73 @@ mod common;
 
 static REPOS_DIR: Dir = include_dir!("tests/fixtures/repos");
 
+fn compare_config(path: &Path) {
+    let ours = tinygit::config::Config::open(path).unwrap();
+    let oracle = git2::Config::open(path).unwrap();
+    let mut entries = oracle.entries(None).unwrap();
+    let mut expected = std::collections::BTreeMap::<String, Vec<Option<String>>>::new();
+    while let Some(entry) = entries.next() {
+        let entry = entry.unwrap();
+        expected
+            .entry(entry.name().unwrap().to_owned())
+            .or_default()
+            .push(entry.has_value().then(|| entry.value().unwrap().to_owned()));
+    }
+    let mut actual = std::collections::BTreeMap::<String, Vec<Option<String>>>::new();
+    for section in &ours.sections {
+        for entry in &section.entries {
+            let name = match &section.subsection {
+                Some(sub) => format!("{}.{}.{}", section.name, sub, entry.key),
+                None => format!("{}.{}", section.name, entry.key),
+            };
+            actual.entry(name).or_default().push(entry.value.clone());
+        }
+    }
+    assert_eq!(actual, expected);
+    for (name, values) in expected {
+        let (prefix, key) = name.rsplit_once('.').unwrap();
+        let (section, sub) = prefix
+            .split_once('.')
+            .map_or((prefix, None), |(s, sub)| (s, Some(sub)));
+        assert_eq!(
+            ours.get_all(section, sub, key).collect::<Vec<_>>(),
+            values.iter().map(|v| v.as_deref()).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            ours.get(section, sub, key),
+            values.last().map(|v| v.as_deref())
+        );
+    }
+}
+
+#[test]
+fn configs_match() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config");
+    for contents in [
+        "",
+        "[core]\nblank = a  \\\n\n",
+        "[core]\ncomment = a  \\\n# trailing comment\n",
+        "[remote \"ori\\gin\"]\nurl = https://example.com/repo\n",
+        "[remote \"origin\"]\nfetch = \\\n   +refs/heads/*:refs/remotes/origin/*\nurl = \"\"   https://example.com/repo\n",
+        "[core] bare = true\n[core] junk\n",
+        "# comment\r\n; comment\r\n[CoRe]\r\n bare\r\n empty =\r\n value = a  b  ; trailing\r\n",
+        "[remote \"Origin\"]\nurl = \" https://example/#; \"\npushurl = a\\\n  b\nfetch = one\n[REMOTE \"Origin\"]\nfetch = two\nurl = last\n",
+        "[remote.Old.Name]\nurl = a\" b \"c\nescapes = \\n\\t\\b\\\\\\\"\n[remote \"a\\\"b\\\\c\"]\nurl = x\n",
+        "\u{feff}[core]\r\nquoted = a  \"\"  \r\nempty = \"\"  \r\ncontinued = \"a\\\r\n b\"\r\n",
+    ] {
+        fs::write(&path, contents).unwrap();
+        compare_config(&path);
+    }
+    for fixture in REPOS_DIR.files() {
+        let (repo, _dir) = unpack_repo(fixture.contents());
+        let path = repo.path.join(".git/config");
+        if path.exists() {
+            compare_config(&path);
+        }
+    }
+}
+
 fn oid_to_hash(oid: &Oid) -> ObjectHash {
     ObjectHash::from_str(&oid.to_string()).expect("should be able to parse hash")
 }

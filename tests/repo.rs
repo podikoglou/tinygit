@@ -16,6 +16,34 @@ fn fixed_identity() -> Identity {
     )
 }
 
+#[test]
+fn reads_repo_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+    let path = dir.path().join(".git/config");
+    assert!(
+        repo.config().is_err(),
+        "missing config should return an error"
+    );
+
+    fs::write(
+        &path,
+        "[remote \"origin\"] url = https://example.com/repo\n",
+    )
+    .expect("should be able to write config");
+    let config = repo.config().expect("should be able to read config");
+    assert_eq!(
+        config.get("remote", Some("origin"), "url"),
+        Some(Some("https://example.com/repo"))
+    );
+
+    fs::write(&path, "").expect("should be able to write empty config");
+    assert!(repo.config().unwrap().sections.is_empty());
+
+    fs::write(&path, "[invalid").expect("should be able to write invalid config");
+    assert!(matches!(repo.config(), Err(TinygitError::ParserError(_))));
+}
+
 fn fixed_timestamp() -> Timestamp {
     Timestamp::try_new(
         DateTime::from_timestamp(1_700_000_000, 0)

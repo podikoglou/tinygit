@@ -27,6 +27,13 @@ use tinygit::{
 };
 use winnow::Parser;
 
+#[test]
+fn fuzz_config() {
+    check!().for_each(|input: &[u8]| {
+        let _ = tinygit::config::Config::decode_bytes(input);
+    });
+}
+
 /// Fuzz the uncompressed loose object parser with arbitrary raw bytes.
 /// Whenever an input successfully parses into a valid Tinygit `Object`,
 /// verify that serializing it and re-parsing it is completely lossless (roundtrip).

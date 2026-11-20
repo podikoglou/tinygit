@@ -1,0 +1,25 @@
+---
+source: src/config.rs
+expression: "entry.parse_peek(Stream::new(bytes))"
+---
+Ok(
+    (
+        [
+            35,
+            32,
+            99,
+            111,
+            109,
+            109,
+            101,
+            110,
+            116,
+        ],
+        Entry {
+            key: "url",
+            value: Some(
+                "a   b # ;  c",
+            ),
+        },
+    ),
+)

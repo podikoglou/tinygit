@@ -1,0 +1,14 @@
+---
+source: src/config.rs
+expression: "header.parse_peek(Stream::new(bytes))"
+---
+Ok(
+    (
+        [],
+        Section {
+            name: "core",
+            subsection: None,
+            entries: [],
+        },
+    ),
+)

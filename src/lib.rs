@@ -13,4 +13,5 @@ pub mod parsing;
 mod repo;
 pub use repo::Repo;
 
+pub mod config;
 pub mod ende;
