@@ -1,0 +1,8 @@
+[remote "Origin"]
+url = " https://example/#; "
+pushurl = a\
+  b
+fetch = one
+[REMOTE "Origin"]
+fetch = two
+url = last

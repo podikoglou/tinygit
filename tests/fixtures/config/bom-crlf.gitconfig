@@ -1,0 +1,5 @@
+﻿[core]
+quoted = a  ""  
+empty = ""  
+continued = "a\
+ b"

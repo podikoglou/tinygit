@@ -1,0 +1,9 @@
+[remote "Origin"]
+URL = first
+fetch = a
+[REMOTE "Origin"]
+url = last
+pushurl = push
+fetch = b
+bare
+empty =

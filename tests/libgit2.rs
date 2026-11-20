@@ -73,15 +73,15 @@ fn configs_match() {
     let path = dir.path().join("config");
     for contents in [
         "",
-        "[core]\nblank = a  \\\n\n",
-        "[core]\ncomment = a  \\\n# trailing comment\n",
-        "[remote \"ori\\gin\"]\nurl = https://example.com/repo\n",
-        "[remote \"origin\"]\nfetch = \\\n   +refs/heads/*:refs/remotes/origin/*\nurl = \"\"   https://example.com/repo\n",
-        "[core] bare = true\n[core] junk\n",
-        "# comment\r\n; comment\r\n[CoRe]\r\n bare\r\n empty =\r\n value = a  b  ; trailing\r\n",
-        "[remote \"Origin\"]\nurl = \" https://example/#; \"\npushurl = a\\\n  b\nfetch = one\n[REMOTE \"Origin\"]\nfetch = two\nurl = last\n",
-        "[remote.Old.Name]\nurl = a\" b \"c\nescapes = \\n\\t\\b\\\\\\\"\n[remote \"a\\\"b\\\\c\"]\nurl = x\n",
-        "\u{feff}[core]\r\nquoted = a  \"\"  \r\nempty = \"\"  \r\ncontinued = \"a\\\r\n b\"\r\n",
+        include_str!("fixtures/config/continuation-blank.gitconfig"),
+        include_str!("fixtures/config/continuation-comment.gitconfig"),
+        include_str!("fixtures/config/subsection-escape.gitconfig"),
+        include_str!("fixtures/config/leading-whitespace.gitconfig"),
+        include_str!("fixtures/config/header-entries.gitconfig"),
+        include_str!("fixtures/config/comments-crlf.gitconfig"),
+        include_str!("fixtures/config/quoted-remotes.gitconfig"),
+        include_str!("fixtures/config/legacy-and-escapes.gitconfig"),
+        include_str!("fixtures/config/bom-crlf.gitconfig"),
     ] {
         fs::write(&path, contents).unwrap();
         compare_config(&path);

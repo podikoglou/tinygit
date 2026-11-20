@@ -26,11 +26,8 @@ fn reads_repo_config() {
         "missing config should return an error"
     );
 
-    fs::write(
-        &path,
-        "[remote \"origin\"] url = https://example.com/repo\n",
-    )
-    .expect("should be able to write config");
+    fs::write(&path, include_str!("fixtures/config/repo.gitconfig"))
+        .expect("should be able to write config");
     let config = repo.config().expect("should be able to read config");
     assert_eq!(
         config.get("remote", Some("origin"), "url"),

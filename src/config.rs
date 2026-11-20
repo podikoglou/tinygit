@@ -287,7 +287,7 @@ mod tests {
             b"enabled".as_slice(),
             b"empty =",
             b"url =  a  \" b # ; \" c  # comment",
-            b"fetch = a\\\n  b\\t\\n\\b\\\\\\\"",
+            include_bytes!("../tests/fixtures/config/entry-continuation.gitconfig"),
         ] {
             assert_debug_snapshot!(entry.parse_peek(Stream::new(bytes)));
         }
@@ -295,7 +295,8 @@ mod tests {
 
     #[test]
     fn queries_config() {
-        let config = Config::decode_str("[remote \"Origin\"]\nURL = first\nfetch = a\n[REMOTE \"Origin\"]\nurl = last\npushurl = push\nfetch = b\nbare\nempty =\n").unwrap();
+        let config =
+            Config::decode_str(include_str!("../tests/fixtures/config/queries.gitconfig")).unwrap();
         assert_eq!(
             config.get("REMOTE", Some("Origin"), "URL"),
             Some(Some("last"))
@@ -329,13 +330,13 @@ mod tests {
         for bytes in [
             b"key=x".as_slice(),
             b"[core",
-            b"[core]\n1key=x",
-            b"[core]\nx=\\q",
-            b"[core]\nx=\"open",
-            b"[core]\nx=\\",
-            b"[core]\nx=\xff",
-            b"[core]\nx=\0",
-            b"[a \"bad\\\n\"]",
+            include_bytes!("../tests/fixtures/config/invalid-key.gitconfig"),
+            include_bytes!("../tests/fixtures/config/invalid-value-escape.gitconfig"),
+            include_bytes!("../tests/fixtures/config/unclosed-value.gitconfig"),
+            include_bytes!("../tests/fixtures/config/unfinished-escape.gitconfig"),
+            include_bytes!("../tests/fixtures/config/invalid-utf8.gitconfig"),
+            include_bytes!("../tests/fixtures/config/nul-value.gitconfig"),
+            include_bytes!("../tests/fixtures/config/invalid-subsection-newline.gitconfig"),
             b"[core] junk other",
         ] {
             assert!(
@@ -353,7 +354,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config");
         assert!(Config::open(&path).is_err());
-        std::fs::write(&path, b"[core]\nkey=value\n").unwrap();
+        std::fs::write(
+            &path,
+            include_bytes!("../tests/fixtures/config/simple.gitconfig"),
+        )
+        .unwrap();
         assert_eq!(
             Config::open(path).unwrap().get("core", None, "key"),
             Some(Some("value"))
