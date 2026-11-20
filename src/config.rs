@@ -352,7 +352,8 @@ mod tests {
 
     #[test]
     fn remote_urls_preserve_file_order() {
-        let config = Config::decode_str("[remote \"origin\"]\nurl=first\npushurl=push-first\n[remote \"origin\"]\nurl=second\npushurl=push-second\n[remote \"empty\"]\n").unwrap();
+        let config =
+            Config::decode_str(include_str!("../tests/fixtures/config/remotes.gitconfig")).unwrap();
         let remote = config.remote("origin").unwrap();
         assert_eq!(remote.urls, ["first", "second"]);
         assert_eq!(remote.push_urls, ["push-first", "push-second"]);

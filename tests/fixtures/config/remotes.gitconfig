@@ -1,0 +1,7 @@
+[remote "origin"]
+url=first
+pushurl=push-first
+[remote "origin"]
+url=second
+pushurl=push-second
+[remote "empty"]
