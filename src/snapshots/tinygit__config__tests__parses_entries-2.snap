@@ -1,0 +1,15 @@
+---
+source: src/config.rs
+expression: "entry.parse_peek(Stream::new(bytes))"
+---
+Ok(
+    (
+        [],
+        Entry {
+            key: "empty",
+            value: Some(
+                "",
+            ),
+        },
+    ),
+)

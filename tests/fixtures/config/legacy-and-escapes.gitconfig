@@ -1,0 +1,5 @@
+[remote.Old.Name]
+url = a" b "c
+escapes = \n\t\b\\\"
+[remote "a\"b\\c"]
+url = x

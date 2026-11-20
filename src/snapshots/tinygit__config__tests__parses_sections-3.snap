@@ -1,0 +1,16 @@
+---
+source: src/config.rs
+expression: "header.parse_peek(Stream::new(bytes))"
+---
+Ok(
+    (
+        [],
+        Section {
+            name: "remote",
+            subsection: Some(
+                "old.name",
+            ),
+            entries: [],
+        },
+    ),
+)

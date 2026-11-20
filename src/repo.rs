@@ -9,6 +9,7 @@ use bstr::BString;
 
 use crate::{
     TinygitError,
+    config::Config,
     object::{Object, blob::Blob},
     storage::{
         Store,
@@ -26,6 +27,11 @@ pub struct Repo {
 }
 
 impl Repo {
+    /// Reads the repository's `.git/config` without expanding includes.
+    pub fn config(&self) -> Result<Config, TinygitError> {
+        Config::open(self.path.join(".git/config"))
+    }
+
     /// Opens an already existing Git repository, constructing a [Repo].
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, TinygitError> {
         let path = path.into();

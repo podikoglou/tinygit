@@ -1,0 +1,13 @@
+---
+source: src/config.rs
+expression: "entry.parse_peek(Stream::new(bytes))"
+---
+Ok(
+    (
+        [],
+        Entry {
+            key: "enabled",
+            value: None,
+        },
+    ),
+)
