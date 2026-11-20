@@ -1,0 +1,20 @@
+---
+source: src/config.rs
+expression: "config.remotes().collect::<Vec<_>>()"
+---
+[
+    Remote {
+        name: "Origin",
+        urls: [
+            "first",
+            "last",
+        ],
+        push_urls: [
+            "push",
+        ],
+        fetch: [
+            "a",
+            "b",
+        ],
+    },
+]
