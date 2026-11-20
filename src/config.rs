@@ -34,6 +34,15 @@ pub struct Entry {
     pub value: Option<String>,
 }
 
+/// The URLs and fetch refspecs of a configured remote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Remote<'a> {
+    pub name: &'a str,
+    pub urls: Vec<&'a str>,
+    pub push_urls: Vec<&'a str>,
+    pub fetch: Vec<&'a str>,
+}
+
 impl Config {
     /// Reads and parses a configuration file without expanding includes.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, TinygitError> {
@@ -75,6 +84,33 @@ impl Config {
             .filter(move |s| s.name.eq_ignore_ascii_case(section))
             .filter_map(|s| s.subsection.as_deref())
             .filter(move |name| seen.insert(*name))
+    }
+
+    /// Looks up a remote by its case-sensitive name.
+    pub fn remote<'a>(&'a self, name: &'a str) -> Option<Remote<'a>> {
+        self.subsections("remote")
+            .find(|n| *n == name)
+            .map(|name| Remote {
+                name,
+                urls: self
+                    .get_all("remote", Some(name), "url")
+                    .flatten()
+                    .collect(),
+                push_urls: self
+                    .get_all("remote", Some(name), "pushurl")
+                    .flatten()
+                    .collect(),
+                fetch: self
+                    .get_all("remote", Some(name), "fetch")
+                    .flatten()
+                    .collect(),
+            })
+    }
+
+    /// Iterates over distinct remotes in first-seen order.
+    pub fn remotes(&self) -> impl Iterator<Item = Remote<'_>> {
+        self.subsections("remote")
+            .filter_map(|name| self.remote(name))
     }
 }
 
@@ -307,22 +343,24 @@ mod tests {
             Some(Some(""))
         );
         assert_eq!(config.get("remote", Some("origin"), "url"), None);
-        assert_eq!(
-            config
-                .get_all("remote", Some("Origin"), "url")
-                .collect::<Vec<_>>(),
-            [Some("first"), Some("last")]
-        );
-        assert_eq!(
-            config
-                .get_all("remote", Some("Origin"), "fetch")
-                .collect::<Vec<_>>(),
-            [Some("a"), Some("b")]
-        );
-        assert_eq!(config.subsections("REMOTE").collect::<Vec<_>>(), ["Origin"]);
+        assert_debug_snapshot!(config.remotes().collect::<Vec<_>>());
         let empty = Config::decode_bytes(b"").unwrap();
         assert_eq!(empty.get("core", None, "bare"), None);
         assert_eq!(empty.subsections("remote").count(), 0);
+        assert_eq!(empty.remotes().count(), 0);
+        assert!(empty.remote("origin").is_none());
+    }
+
+    #[test]
+    fn remote_urls_preserve_file_order() {
+        let config =
+            Config::decode_str(include_str!("../tests/fixtures/config/remotes.gitconfig")).unwrap();
+        let remote = config.remote("origin").unwrap();
+        assert_eq!(remote.urls, ["first", "second"]);
+        assert_eq!(remote.push_urls, ["push-first", "push-second"]);
+        let empty = config.remote("empty").unwrap();
+        assert!(empty.urls.is_empty());
+        assert!(empty.push_urls.is_empty());
     }
 
     #[test]

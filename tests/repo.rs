@@ -30,8 +30,8 @@ fn reads_repo_config() {
         .expect("should be able to write config");
     let config = repo.config().expect("should be able to read config");
     assert_eq!(
-        config.get("remote", Some("origin"), "url"),
-        Some(Some("https://example.com/repo"))
+        config.remote("origin").unwrap().urls,
+        ["https://example.com/repo"]
     );
 
     fs::write(&path, "").expect("should be able to write empty config");
