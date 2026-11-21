@@ -1,6 +1,10 @@
 use std::{
+    ffi::OsStr,
     fs, io,
-    os::unix::fs::{MetadataExt, PermissionsExt},
+    os::unix::{
+        ffi::OsStrExt,
+        fs::{MetadataExt, PermissionsExt},
+    },
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -79,7 +83,9 @@ impl Repo {
     /// relative to the repository root. Symlinks are staged without following their
     /// targets, and empty directories add no entries.
     ///
-    /// The index is updated once after all entries have been collected.
+    /// The index is updated once after all entries have been collected. Entries that the
+    /// staged subtree no longer contains are removed, so staging a directory also records
+    /// deletions of tracked files.
     pub fn stage(&self, path: impl AsRef<Path>) -> Result<(), TinygitError> {
         // A trailing separator would make symlink_metadata follow a directory link.
         let path = path.as_ref().components().as_path();
@@ -94,13 +100,23 @@ impl Repo {
             .strip_prefix(&root)
             .map_err(|_| TinygitError::NotInRepo)?;
 
+        let staged_dir = metadata.is_dir();
         let entries = self.collect_index_entries(&path, relative_path, metadata)?;
 
-        if entries.is_empty() {
+        let mut index = self.store.index()?;
+        let existing = index.entries().count();
+
+        index.retain_entries(|entry| {
+            let entry_path = Path::new(OsStr::from_bytes(entry.path_name.as_slice()));
+
+            entry_survives_staging(entry_path, relative_path, staged_dir, &root)
+        });
+
+        let removed = existing != index.entries().count();
+
+        if entries.is_empty() && !removed {
             return Ok(());
         }
-
-        let mut index = self.store.index()?;
 
         for entry in entries {
             index.add_entry(entry);
@@ -192,6 +208,41 @@ impl Repo {
             path_name,
         })
     }
+}
+
+/// Whether an index entry still describes the working tree after staging the
+/// repository-relative `relative_path`, which is a directory when `staged_dir` is set.
+fn entry_survives_staging(
+    entry_path: &Path,
+    relative_path: &Path,
+    staged_dir: bool,
+    root: &Path,
+) -> bool {
+    if entry_path == relative_path {
+        // a file replaced by a directory is represented by the files inside it
+        return !staged_dir;
+    }
+
+    if relative_path.starts_with(entry_path) {
+        // an entry cannot be a file while the path it contains is staged
+        return false;
+    }
+
+    if entry_path.starts_with(relative_path) {
+        if !staged_dir {
+            // a directory replaced by a file leaves no entries beneath it
+            return false;
+        }
+
+        // files deleted from the staged directory are no longer tracked, but a
+        // file that still exists keeps its entry even if it is now ignored
+        return root
+            .join(entry_path)
+            .symlink_metadata()
+            .is_ok_and(|metadata| !metadata.is_dir());
+    }
+
+    true
 }
 
 fn canonical_stage_path(path: &Path, metadata: &fs::Metadata) -> Result<PathBuf, TinygitError> {
