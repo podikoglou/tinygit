@@ -13,14 +13,15 @@ use std::{
 use bstr::BString;
 
 use crate::{
-    TinygitError,
-    object::{Object, blob::Blob},
+    ignore::Ignore,
+    object::{blob::Blob, Object},
     storage::{
-        Store,
         index::{Flags, IndexEntry, Mode, ObjectType},
         object::RawObject,
         reference::RefPointer,
+        Store,
     },
+    TinygitError,
 };
 
 /// A Git repository, containing a `.git` directory.
@@ -101,8 +102,10 @@ impl Repo {
             .strip_prefix(&root)
             .map_err(|_| TinygitError::NotInRepo)?;
 
+        let ignore = Ignore::for_dir(&root)?;
+
         let staged_dir = metadata.is_dir();
-        let entries = self.collect_index_entries(&path, relative_path, metadata)?;
+        let entries = self.collect_index_entries(&path, relative_path, metadata, &ignore)?;
 
         // collected entries are files and symlinks, never directories, so nothing can
         // remain tracked beneath one of them
@@ -138,8 +141,12 @@ impl Repo {
         path: &Path,
         relative_path: &Path,
         metadata: fs::Metadata,
+        ignore: &Ignore,
     ) -> Result<Vec<IndexEntry>, TinygitError> {
         if !metadata.is_dir() {
+            if !relative_path.as_os_str().is_empty() && ignore.is_ignored(relative_path, false) {
+                return Ok(Vec::new());
+            }
             return Ok(vec![self.stage_file(path, relative_path, &metadata)?]);
         }
 
@@ -148,11 +155,23 @@ impl Repo {
             let child = child?;
             let child_path = child.path();
             let child_relative_path = relative_path.join(child.file_name());
+            let child_metadata = child.metadata()?;
+
+            if ignore.is_ignored(&child_relative_path, child_metadata.is_dir()) {
+                continue;
+            }
+
+            let child_ignore = if child_metadata.is_dir() {
+                ignore.child(&child_path)?
+            } else {
+                ignore.clone()
+            };
 
             entries.extend(self.collect_index_entries(
                 &child_path,
                 &child_relative_path,
-                child.metadata()?,
+                child_metadata,
+                &child_ignore,
             )?);
         }
 
