@@ -87,8 +87,8 @@ impl Repo {
     /// staged subtree no longer contains are removed, so staging a directory also records
     /// deletions of tracked files.
     pub fn stage(&self, path: impl AsRef<Path>) -> Result<(), TinygitError> {
-        // A trailing separator would make symlink_metadata follow a directory link.
         let path = path.as_ref().components().as_path();
+
         let metadata = fs::symlink_metadata(path).map_err(|err| match err.kind() {
             io::ErrorKind::NotFound => TinygitError::InvalidFileName,
             _ => err.into(),
@@ -100,12 +100,16 @@ impl Repo {
         let mut index = self.store.index()?;
         let existing = index.entries().count();
 
+        // removes
         let target = &relative_path;
+
         index.retain(|entry| {
             let entry_path = Path::new(OsStr::from_bytes(entry.path_name.as_slice()));
+
             let conflicts = target.as_os_str().is_empty()
                 || entry_path.starts_with(target)
                 || target.starts_with(entry_path);
+
             !conflicts
         });
 
@@ -115,6 +119,7 @@ impl Repo {
             return Ok(());
         }
 
+        // adds
         for entry in entries {
             index.add_entry(entry);
         }
