@@ -351,6 +351,22 @@ fn commit_records_deletion_of_the_last_tracked_file() {
 
     assert!(tree.entries.is_empty(), "deletion should leave an empty tree");
     assert_eq!(repo.store.head().expect("should read HEAD").1, second);
+
+    let err = repo
+        .store
+        .commit(
+            "nothing changed",
+            (fixed_identity(), fixed_timestamp()),
+            (fixed_identity(), fixed_timestamp()),
+        )
+        .expect_err("should not commit an unchanged empty tree");
+
+    assert!(matches!(err, TinygitError::EmptyTree));
+    assert_eq!(
+        repo.store.head().expect("should read HEAD").1,
+        second,
+        "HEAD should not move"
+    );
 }
 
 #[test]
