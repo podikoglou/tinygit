@@ -94,7 +94,7 @@ impl Repo {
             _ => err.into(),
         })?;
 
-        let relative_path = self.repo_relative_path(path, metadata.is_symlink())?;
+        let relative_path = self.relative_path(path, metadata.is_symlink())?;
         let entries = self.collect_entries(path, &relative_path, &metadata)?;
 
         let mut index = self.store.index()?;
@@ -127,11 +127,13 @@ impl Repo {
         index.try_write()
     }
 
-    fn repo_relative_path(&self, path: &Path, is_symlink: bool) -> Result<PathBuf, TinygitError> {
+    /// Gets the path of a file relative to the root of the repository, handling symlinks.
+    fn relative_path(&self, path: &Path, is_symlink: bool) -> Result<PathBuf, TinygitError> {
         let root = self.path.canonicalize()?;
 
         let canonical = if is_symlink {
             let name = path.file_name().ok_or(TinygitError::InvalidFileName)?;
+
             let parent = path
                 .parent()
                 .filter(|parent| !parent.as_os_str().is_empty())
@@ -144,7 +146,7 @@ impl Repo {
 
         canonical
             .strip_prefix(&root)
-            .map(|p| p.to_path_buf())
+            .map(|p| p.into())
             .map_err(|_| TinygitError::NotInRepo)
     }
 
