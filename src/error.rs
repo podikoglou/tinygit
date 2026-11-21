@@ -125,6 +125,9 @@ pub enum TinygitError {
     #[error("Empty tree")]
     EmptyTree,
 
+    #[error("Unsupported file type")]
+    UnsupportedFileType,
+
     #[error("Unexpected object type")]
     UnexpectedObjectType,
 
