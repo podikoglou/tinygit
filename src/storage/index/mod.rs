@@ -121,6 +121,16 @@ impl Index {
         self.header.entries = u32::try_from(self.entries.len())
             .expect("the index cannot hold more entries than u32 allows");
     }
+
+    /// Keeps only the entries for which `keep` returns `true`.
+    ///
+    /// Retained entries stay sorted, and the header's entry count is kept in sync.
+    pub fn retain_entries(&mut self, mut keep: impl FnMut(&IndexEntry) -> bool) {
+        self.entries.retain(|entry| keep(entry));
+
+        self.header.entries = u32::try_from(self.entries.len())
+            .expect("the index cannot hold more entries than u32 allows");
+    }
 }
 
 impl Decode for (IndexHeader, Vec<IndexEntry>, ObjectHash) {

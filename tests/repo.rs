@@ -1,4 +1,7 @@
-use std::fs::{self, File};
+use std::{
+    fs::{self, File},
+    os::unix::{fs::symlink, net::UnixListener},
+};
 
 use chrono::{DateTime, FixedOffset};
 use tinygit::{
@@ -8,6 +11,15 @@ use tinygit::{
     storage::reference::RefPointer,
     time::Timestamp,
 };
+
+fn staged_paths(repo: &Repo) -> Vec<String> {
+    repo.store
+        .index()
+        .expect("should be able to read index")
+        .entries()
+        .map(|entry| entry.path_name.to_string())
+        .collect()
+}
 
 fn fixed_identity() -> Identity {
     Identity::new(
@@ -105,6 +117,256 @@ fn stage_file_creates_blob_and_index_entry() {
         .object(&entries[0].hash)
         .expect("should find object");
     assert!(matches!(obj, Object::Blob(_)));
+}
+
+#[test]
+fn stage_directory_uses_repo_relative_paths_without_following_links() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let path = dir.path().join("dir");
+    fs::create_dir_all(path.join("nested")).unwrap();
+    fs::create_dir(path.join("empty")).unwrap();
+
+    fs::write(path.join("file"), b"outer").unwrap();
+    fs::write(path.join("nested/file"), b"inner").unwrap();
+    symlink("nested", path.join("link")).unwrap();
+
+    repo.stage(&path).expect("should stage directory");
+
+    let index = repo.store.index().expect("should be able to read index");
+    let entries = index
+        .entries()
+        .map(|entry| (entry.path_name.to_string(), entry.mode.raw()))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        entries,
+        [
+            ("dir/file".into(), 0o100644),
+            ("dir/link".into(), 0o120000),
+            ("dir/nested/file".into(), 0o100644),
+        ],
+    );
+
+    let link = index
+        .entries()
+        .find(|entry| entry.path_name == "dir/link")
+        .expect("should find staged link");
+    let object = repo
+        .store
+        .object(&link.hash)
+        .expect("should find link blob");
+    assert!(matches!(object, Object::Blob(Blob(bytes)) if bytes == b"nested"));
+}
+
+#[test]
+fn failed_directory_walk_keeps_existing_index() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let staged = dir.path().join("staged");
+    fs::write(&staged, b"already staged").unwrap();
+    repo.stage(&staged).expect("should stage file");
+
+    let index_path = repo.store.index_path();
+    let before = fs::read(&index_path).unwrap();
+
+    let path = dir.path().join("dir");
+    fs::create_dir(&path).unwrap();
+    fs::write(path.join("file"), b"not staged").unwrap();
+    let _socket = UnixListener::bind(path.join("socket")).unwrap();
+
+    assert!(repo.stage(&path).is_err());
+    assert_eq!(fs::read(&index_path).unwrap(), before);
+}
+
+#[test]
+fn stage_directory_removes_deleted_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let path = dir.path().join("dir");
+    fs::create_dir(&path).unwrap();
+    fs::write(path.join("kept"), b"kept").unwrap();
+    fs::write(path.join("deleted"), b"deleted").unwrap();
+
+    repo.stage(&path).expect("should stage directory");
+    fs::remove_file(path.join("deleted")).unwrap();
+    repo.stage(&path).expect("should stage directory");
+
+    assert_eq!(staged_paths(&repo), ["dir/kept"]);
+}
+
+#[test]
+fn stage_empty_directory_removes_deleted_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let path = dir.path().join("dir");
+    fs::create_dir(&path).unwrap();
+    fs::write(path.join("only"), b"only").unwrap();
+
+    repo.stage(&path).expect("should stage directory");
+    fs::remove_file(path.join("only")).unwrap();
+    repo.stage(&path).expect("should stage directory");
+
+    assert!(staged_paths(&repo).is_empty());
+}
+
+#[test]
+fn stage_directory_leaves_entries_outside_it_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    fs::create_dir(dir.path().join("staged")).unwrap();
+    fs::create_dir(dir.path().join("other")).unwrap();
+    fs::write(dir.path().join("staged/deleted"), b"deleted").unwrap();
+    fs::write(dir.path().join("other/kept"), b"kept").unwrap();
+
+    repo.stage(dir.path().join("staged"))
+        .expect("should stage directory");
+    repo.stage(dir.path().join("other"))
+        .expect("should stage directory");
+    fs::remove_file(dir.path().join("staged/deleted")).unwrap();
+    repo.stage(dir.path().join("staged"))
+        .expect("should stage directory");
+
+    assert_eq!(staged_paths(&repo), ["other/kept"]);
+}
+
+#[test]
+fn stage_file_that_replaced_a_directory_removes_nested_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let path = dir.path().join("thing");
+    fs::create_dir(&path).unwrap();
+    fs::write(path.join("child"), b"child").unwrap();
+
+    repo.stage(&path).expect("should stage directory");
+    fs::remove_dir_all(&path).unwrap();
+    fs::write(&path, b"now a file").unwrap();
+    repo.stage(&path).expect("should stage file");
+
+    assert_eq!(staged_paths(&repo), ["thing"]);
+}
+
+#[test]
+fn stage_directory_that_replaced_a_file_removes_the_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let path = dir.path().join("thing");
+    fs::write(&path, b"now a directory").unwrap();
+
+    repo.stage(&path).expect("should stage file");
+    fs::remove_file(&path).unwrap();
+    fs::create_dir(&path).unwrap();
+    fs::write(path.join("child"), b"child").unwrap();
+    repo.stage(&path).expect("should stage directory");
+
+    assert_eq!(staged_paths(&repo), ["thing/child"]);
+}
+
+#[test]
+fn stage_directory_removes_entry_of_nested_file_replaced_by_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let path = dir.path().join("dir/item");
+    fs::create_dir(dir.path().join("dir")).unwrap();
+    fs::write(&path, b"now a directory").unwrap();
+
+    repo.stage(dir.path().join("dir"))
+        .expect("should stage directory");
+    fs::remove_file(&path).unwrap();
+    fs::create_dir(&path).unwrap();
+    fs::write(path.join("child"), b"child").unwrap();
+    repo.stage(dir.path().join("dir"))
+        .expect("should stage directory");
+
+    assert_eq!(staged_paths(&repo), ["dir/item/child"]);
+}
+
+#[test]
+fn stage_directory_removes_entries_beneath_replaced_directory_symlink() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let item = dir.path().join("dir/item");
+    fs::create_dir_all(&item).unwrap();
+    fs::write(item.join("file"), b"old").unwrap();
+
+    repo.stage(dir.path().join("dir"))
+        .expect("should stage directory");
+    fs::rename(&item, dir.path().join("backup")).unwrap();
+    symlink("../backup", &item).unwrap();
+    repo.stage(dir.path().join("dir"))
+        .expect("should stage directory");
+
+    assert_eq!(staged_paths(&repo), ["dir/item"]);
+}
+
+#[test]
+fn commit_records_deletion_of_the_last_tracked_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let path = dir.path().join("dir/only");
+    fs::create_dir(dir.path().join("dir")).unwrap();
+    fs::write(&path, b"only").unwrap();
+    repo.stage(dir.path().join("dir")).expect("should stage");
+    let first = repo
+        .store
+        .commit(
+            "add the only file",
+            (fixed_identity(), fixed_timestamp()),
+            (fixed_identity(), fixed_timestamp()),
+        )
+        .expect("should commit the first file");
+
+    fs::remove_file(&path).unwrap();
+    repo.stage(dir.path().join("dir"))
+        .expect("should stage the deletion");
+    let second = repo
+        .store
+        .commit(
+            "remove the only file",
+            (fixed_identity(), fixed_timestamp()),
+            (fixed_identity(), fixed_timestamp()),
+        )
+        .expect("should commit the deletion");
+
+    let (commit, _) = repo.store.head().expect("should read HEAD");
+    assert_eq!(commit.parents, vec![first]);
+
+    let Object::Tree(tree) = repo
+        .store
+        .object(&commit.tree)
+        .expect("tree should be present in the store")
+    else {
+        panic!("commit tree should be a tree object");
+    };
+
+    assert!(tree.entries.is_empty(), "deletion should leave an empty tree");
+    assert_eq!(repo.store.head().expect("should read HEAD").1, second);
+
+    let err = repo
+        .store
+        .commit(
+            "nothing changed",
+            (fixed_identity(), fixed_timestamp()),
+            (fixed_identity(), fixed_timestamp()),
+        )
+        .expect_err("should not commit an unchanged empty tree");
+
+    assert!(matches!(err, TinygitError::EmptyTree));
+    assert_eq!(
+        repo.store.head().expect("should read HEAD").1,
+        second,
+        "HEAD should not move"
+    );
 }
 
 #[test]
