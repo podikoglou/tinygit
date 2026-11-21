@@ -290,6 +290,70 @@ fn stage_directory_removes_entry_of_nested_file_replaced_by_directory() {
 }
 
 #[test]
+fn stage_directory_removes_entries_beneath_replaced_directory_symlink() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let item = dir.path().join("dir/item");
+    fs::create_dir_all(&item).unwrap();
+    fs::write(item.join("file"), b"old").unwrap();
+
+    repo.stage(dir.path().join("dir"))
+        .expect("should stage directory");
+    fs::rename(&item, dir.path().join("backup")).unwrap();
+    symlink("../backup", &item).unwrap();
+    repo.stage(dir.path().join("dir"))
+        .expect("should stage directory");
+
+    assert_eq!(staged_paths(&repo), ["dir/item"]);
+}
+
+#[test]
+fn commit_records_deletion_of_the_last_tracked_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    let path = dir.path().join("dir/only");
+    fs::create_dir(dir.path().join("dir")).unwrap();
+    fs::write(&path, b"only").unwrap();
+    repo.stage(dir.path().join("dir")).expect("should stage");
+    let first = repo
+        .store
+        .commit(
+            "add the only file",
+            (fixed_identity(), fixed_timestamp()),
+            (fixed_identity(), fixed_timestamp()),
+        )
+        .expect("should commit the first file");
+
+    fs::remove_file(&path).unwrap();
+    repo.stage(dir.path().join("dir"))
+        .expect("should stage the deletion");
+    let second = repo
+        .store
+        .commit(
+            "remove the only file",
+            (fixed_identity(), fixed_timestamp()),
+            (fixed_identity(), fixed_timestamp()),
+        )
+        .expect("should commit the deletion");
+
+    let (commit, _) = repo.store.head().expect("should read HEAD");
+    assert_eq!(commit.parents, vec![first]);
+
+    let Object::Tree(tree) = repo
+        .store
+        .object(&commit.tree)
+        .expect("tree should be present in the store")
+    else {
+        panic!("commit tree should be a tree object");
+    };
+
+    assert!(tree.entries.is_empty(), "deletion should leave an empty tree");
+    assert_eq!(repo.store.head().expect("should read HEAD").1, second);
+}
+
+#[test]
 fn stage_replaces_existing_index_entry() {
     let dir = tempfile::tempdir().unwrap();
     let repo = Repo::new(dir.path()).expect("should be able to create repository");

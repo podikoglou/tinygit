@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     ffi::OsStr,
     fs, io,
     os::unix::{
@@ -103,13 +104,20 @@ impl Repo {
         let staged_dir = metadata.is_dir();
         let entries = self.collect_index_entries(&path, relative_path, metadata)?;
 
+        // collected entries are files and symlinks, never directories, so nothing can
+        // remain tracked beneath one of them
+        let collected: HashSet<&[u8]> = entries
+            .iter()
+            .map(|entry| entry.path_name.as_slice())
+            .collect();
+
         let mut index = self.store.index()?;
         let existing = index.entries().count();
 
         index.retain_entries(|entry| {
             let entry_path = Path::new(OsStr::from_bytes(entry.path_name.as_slice()));
 
-            entry_survives_staging(entry_path, relative_path, staged_dir, &root)
+            entry_survives_staging(entry_path, relative_path, staged_dir, &root, &collected)
         });
 
         let removed = existing != index.entries().count();
@@ -217,7 +225,19 @@ fn entry_survives_staging(
     relative_path: &Path,
     staged_dir: bool,
     root: &Path,
+    collected: &HashSet<&[u8]>,
 ) -> bool {
+    // checking the disk would follow a symlink that replaced one of these directories and
+    // find the old targets, so the collected paths decide on their own
+    let beneath_collected = entry_path.ancestors().skip(1).any(|ancestor| {
+        !ancestor.as_os_str().is_empty()
+            && collected.contains(ancestor.as_os_str().as_bytes())
+    });
+
+    if beneath_collected {
+        return false;
+    }
+
     if entry_path == relative_path {
         // a file replaced by a directory is represented by the files inside it
         return !staged_dir;

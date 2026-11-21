@@ -235,17 +235,20 @@ impl Store {
         author: (Identity, Timestamp),
         committer: (Identity, Timestamp),
     ) -> Result<ObjectHash, TinygitError> {
-        if self.index()?.entries().next().is_none() {
-            return Err(TinygitError::EmptyTree);
-        }
-
-        let tree = self.write_tree()?;
+        let empty_index = self.index()?.entries().next().is_none();
 
         let parents = match self.head() {
             Ok((_, hash)) => vec![hash],
             Err(TinygitError::RefNotFound) => vec![],
             Err(err) => return Err(err),
         };
+
+        // an empty tree is only worth committing when it removes a parent's entries
+        if empty_index && parents.is_empty() {
+            return Err(TinygitError::EmptyTree);
+        }
+
+        let tree = self.write_tree()?;
 
         // `git commit -m` stores the message followed by a newline
         let mut description: BString = message.into();
