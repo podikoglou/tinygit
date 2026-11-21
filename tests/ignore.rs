@@ -148,6 +148,23 @@ fn stage_respects_nested_gitignore() {
 }
 
 #[test]
+fn stage_keeps_entry_of_tracked_file_that_became_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should create repo");
+
+    fs::write(dir.path().join("tracked.log"), b"tracked").unwrap();
+    repo.stage(dir.path()).expect("should stage repo root");
+
+    fs::write(dir.path().join(".gitignore"), b"*.log\n").unwrap();
+    repo.stage(dir.path()).expect("should stage repo root");
+
+    let index = repo.store.index().expect("should read index");
+    let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
+
+    assert_eq!(paths, vec![".gitignore", "tracked.log"]);
+}
+
+#[test]
 fn stage_ignored_file_directly_does_not_stage_it() {
     let dir = tempfile::tempdir().unwrap();
     let repo = Repo::new(dir.path()).expect("should create repo");
