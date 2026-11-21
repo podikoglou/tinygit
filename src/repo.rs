@@ -1,5 +1,4 @@
 use std::{
-    collections::HashSet,
     ffi::OsStr,
     fs, io,
     os::unix::{
@@ -95,29 +94,19 @@ impl Repo {
             _ => err.into(),
         })?;
 
-        let root = self.path.canonicalize()?;
-        let path = canonical_stage_path(path, &metadata)?;
-        let relative_path = path
-            .strip_prefix(&root)
-            .map_err(|_| TinygitError::NotInRepo)?;
-
-        let staged_dir = metadata.is_dir();
-        let entries = self.collect_index_entries(&path, relative_path, metadata)?;
-
-        // collected entries are files and symlinks, never directories, so nothing can
-        // remain tracked beneath one of them
-        let collected: HashSet<&[u8]> = entries
-            .iter()
-            .map(|entry| entry.path_name.as_slice())
-            .collect();
+        let relative_path = self.repo_relative_path(path, metadata.is_symlink())?;
+        let entries = self.collect_entries(path, &relative_path, &metadata)?;
 
         let mut index = self.store.index()?;
         let existing = index.entries().count();
 
-        index.retain_entries(|entry| {
+        let target = &relative_path;
+        index.retain(|entry| {
             let entry_path = Path::new(OsStr::from_bytes(entry.path_name.as_slice()));
-
-            entry_survives_staging(entry_path, relative_path, staged_dir, &root, &collected)
+            let conflicts = target.as_os_str().is_empty()
+                || entry_path.starts_with(target)
+                || target.starts_with(entry_path);
+            !conflicts
         });
 
         let removed = existing != index.entries().count();
@@ -133,27 +122,54 @@ impl Repo {
         index.try_write()
     }
 
-    fn collect_index_entries(
+    fn repo_relative_path(&self, path: &Path, is_symlink: bool) -> Result<PathBuf, TinygitError> {
+        let root = self.path.canonicalize()?;
+
+        let canonical = if is_symlink {
+            let name = path.file_name().ok_or(TinygitError::InvalidFileName)?;
+            let parent = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+
+            parent.canonicalize()?.join(name)
+        } else {
+            path.canonicalize()?
+        };
+
+        canonical
+            .strip_prefix(&root)
+            .map(|p| p.to_path_buf())
+            .map_err(|_| TinygitError::NotInRepo)
+    }
+
+    fn collect_entries(
         &self,
         path: &Path,
         relative_path: &Path,
-        metadata: fs::Metadata,
+        metadata: &fs::Metadata,
     ) -> Result<Vec<IndexEntry>, TinygitError> {
         if !metadata.is_dir() {
-            return Ok(vec![self.stage_file(path, relative_path, &metadata)?]);
+            return Ok(vec![self.stage_file(path, relative_path, metadata)?]);
         }
 
         let mut entries = Vec::new();
-        for child in fs::read_dir(path)? {
-            let child = child?;
-            let child_path = child.path();
-            let child_relative_path = relative_path.join(child.file_name());
+        let mut queue = vec![(path.to_path_buf(), relative_path.to_path_buf())];
 
-            entries.extend(self.collect_index_entries(
-                &child_path,
-                &child_relative_path,
-                child.metadata()?,
-            )?);
+        while let Some((dir_path, dir_relative)) = queue.pop() {
+            for child in fs::read_dir(&dir_path)? {
+                let child = child?;
+                let child_path = child.path();
+                let child_relative = dir_relative.join(child.file_name());
+                let child_type = child.file_type()?;
+
+                if child_type.is_dir() {
+                    queue.push((child_path, child_relative));
+                } else {
+                    let child_metadata = fs::symlink_metadata(&child_path)?;
+                    entries.push(self.stage_file(&child_path, &child_relative, &child_metadata)?);
+                }
+            }
         }
 
         Ok(entries)
@@ -180,9 +196,7 @@ impl Repo {
 
             (fs::read(path)?, mode)
         } else {
-            return Err(
-                io::Error::new(io::ErrorKind::Unsupported, "cannot stage this file type").into(),
-            );
+            return Err(TinygitError::UnsupportedFileType);
         };
 
         let raw: RawObject = Object::Blob(Blob(bytes)).try_into()?;
@@ -216,66 +230,4 @@ impl Repo {
             path_name,
         })
     }
-}
-
-/// Whether an index entry still describes the working tree after staging the
-/// repository-relative `relative_path`, which is a directory when `staged_dir` is set.
-fn entry_survives_staging(
-    entry_path: &Path,
-    relative_path: &Path,
-    staged_dir: bool,
-    root: &Path,
-    collected: &HashSet<&[u8]>,
-) -> bool {
-    // checking the disk would follow a symlink that replaced one of these directories and
-    // find the old targets, so the collected paths decide on their own
-    let beneath_collected = entry_path.ancestors().skip(1).any(|ancestor| {
-        !ancestor.as_os_str().is_empty()
-            && collected.contains(ancestor.as_os_str().as_bytes())
-    });
-
-    if beneath_collected {
-        return false;
-    }
-
-    if entry_path == relative_path {
-        // a file replaced by a directory is represented by the files inside it
-        return !staged_dir;
-    }
-
-    if relative_path.starts_with(entry_path) {
-        // an entry cannot be a file while the path it contains is staged
-        return false;
-    }
-
-    if entry_path.starts_with(relative_path) {
-        if !staged_dir {
-            // a directory replaced by a file leaves no entries beneath it
-            return false;
-        }
-
-        // files deleted from the staged directory are no longer tracked, but a
-        // file that still exists keeps its entry even if it is now ignored
-        return root
-            .join(entry_path)
-            .symlink_metadata()
-            .is_ok_and(|metadata| !metadata.is_dir());
-    }
-
-    true
-}
-
-fn canonical_stage_path(path: &Path, metadata: &fs::Metadata) -> Result<PathBuf, TinygitError> {
-    if !metadata.is_symlink() {
-        return Ok(path.canonicalize()?);
-    }
-
-    // Resolve the parent but keep the link's own name.
-    let name = path.file_name().ok_or(TinygitError::InvalidFileName)?;
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-
-    Ok(parent.canonicalize()?.join(name))
 }

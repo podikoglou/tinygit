@@ -235,7 +235,7 @@ impl Store {
         author: (Identity, Timestamp),
         committer: (Identity, Timestamp),
     ) -> Result<ObjectHash, TinygitError> {
-        let empty_index = self.index()?.entries().next().is_none();
+        let is_empty = self.index()?.entries().next().is_none();
 
         let (parents, parent_tree) = match self.head() {
             Ok((commit, hash)) => (vec![hash], Some(commit.tree)),
@@ -244,13 +244,13 @@ impl Store {
         };
 
         // an empty tree is only worth committing when it removes a parent's entries
-        if empty_index && parent_tree.is_none() {
+        if is_empty && parent_tree.is_none() {
             return Err(TinygitError::EmptyTree);
         }
 
         let tree = self.write_tree()?;
 
-        if empty_index && parent_tree.is_some_and(|parent_tree| parent_tree == tree) {
+        if is_empty && parent_tree == Some(tree.clone()) {
             return Err(TinygitError::EmptyTree);
         }
 
