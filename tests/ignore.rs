@@ -1,193 +1,165 @@
-use std::fs;
+mod common;
 
-use tinygit::Repo;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 
 #[test]
-fn stage_repo_root_ignores_git_directory() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = Repo::new(dir.path()).expect("should create repo");
-
-    fs::write(dir.path().join("README.md"), b"hello").unwrap();
-    fs::create_dir(dir.path().join("src")).unwrap();
-    fs::write(dir.path().join("src/main.rs"), b"fn main() {}").unwrap();
+fn stage_repo_root_respects_ignore_rules() {
+    let (repo, dir) = include_repo!("fixtures/repos/repo-11.tar");
 
     repo.stage(dir.path()).expect("should stage repo root");
 
     let index = repo.store.index().expect("should read index");
     let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
 
-    assert_eq!(paths, vec!["README.md", "src/main.rs"]);
-    assert!(!paths.iter().any(|p| p.starts_with(".git")));
-}
-
-#[test]
-fn stage_respects_root_gitignore() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = Repo::new(dir.path()).expect("should create repo");
-
-    fs::write(
-        dir.path().join(".gitignore"),
-        b"*.log\ntarget/\nbuild/\n!important.log\n",
-    )
-    .unwrap();
-
-    fs::write(dir.path().join("debug.log"), b"debug").unwrap();
-    fs::write(dir.path().join("important.log"), b"keep me").unwrap();
-
-    fs::create_dir_all(dir.path().join("target/debug")).unwrap();
-    fs::write(dir.path().join("target/debug/output.bin"), b"binary").unwrap();
-
-    fs::create_dir_all(dir.path().join("build")).unwrap();
-    fs::write(dir.path().join("build/artifact.o"), b"artifact").unwrap();
-
-    fs::create_dir_all(dir.path().join("src")).unwrap();
-    fs::write(dir.path().join("src/lib.rs"), b"pub fn run() {}").unwrap();
-
-    repo.stage(dir.path()).expect("should stage repo root");
-
-    let index = repo.store.index().expect("should read index");
-    let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
-
-    assert_eq!(paths, vec![".gitignore", "important.log", "src/lib.rs"]);
-}
-
-#[test]
-fn stage_respects_nested_gitignore() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = Repo::new(dir.path()).expect("should create repo");
-
-    let nested = dir.path().join("nested");
-    fs::create_dir_all(nested.join("ignored_dir")).unwrap();
-
-    fs::write(nested.join(".gitignore"), b"*.tmp\nignored_dir/\n").unwrap();
-    fs::write(nested.join("a.tmp"), b"temp").unwrap();
-    fs::write(nested.join("keep.txt"), b"keep").unwrap();
-    fs::write(nested.join("ignored_dir/data.bin"), b"data").unwrap();
-
-    repo.stage(dir.path()).expect("should stage repo root");
-
-    let index = repo.store.index().expect("should read index");
-    let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
-
-    assert_eq!(paths, vec!["nested/.gitignore", "nested/keep.txt"]);
+    assert_eq!(
+        paths,
+        vec![
+            ".gitignore",
+            "important.log",
+            "nested/.gitignore",
+            "nested/sub/local_only",
+            "src/main.rs"
+        ]
+    );
 }
 
 #[test]
 fn stage_nested_directory_respects_its_gitignore() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = Repo::new(dir.path()).expect("should create repo");
-
+    let (repo, dir) = include_repo!("fixtures/repos/repo-11.tar");
     let nested = dir.path().join("nested");
-    fs::create_dir(&nested).unwrap();
-
-    fs::write(nested.join(".gitignore"), b"*.tmp\n").unwrap();
-    fs::write(nested.join("a.tmp"), b"temp").unwrap();
-    fs::write(nested.join("keep.txt"), b"keep").unwrap();
 
     repo.stage(&nested).expect("should stage directory");
 
     let index = repo.store.index().expect("should read index");
     let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
 
-    assert_eq!(paths, vec!["nested/.gitignore", "nested/keep.txt"]);
+    assert_eq!(
+        paths,
+        vec![
+            ".gitignore",
+            "important.log",
+            "nested/.gitignore",
+            "nested/sub/local_only",
+            "src/main.rs"
+        ]
+    );
 }
 
 #[test]
 fn stage_ignored_directory_does_not_apply_its_gitignore() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = Repo::new(dir.path()).expect("should create repo");
+    let (repo, dir) = include_repo!("fixtures/repos/repo-11.tar");
+    let target = dir.path().join("target");
 
-    let ignored = dir.path().join("ignored");
-    fs::create_dir(&ignored).unwrap();
-
-    fs::write(dir.path().join(".gitignore"), b"ignored/\n").unwrap();
-    fs::write(ignored.join(".gitignore"), b"!*\n").unwrap();
-    fs::write(ignored.join("file.txt"), b"content").unwrap();
-
-    repo.stage(&ignored).expect("should succeed");
+    repo.stage(&target).expect("should succeed");
 
     let index = repo.store.index().expect("should read index");
-    assert_eq!(index.entries().count(), 0);
+    let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
+
+    assert_eq!(
+        paths,
+        vec![
+            ".gitignore",
+            "important.log",
+            "nested/.gitignore",
+            "nested/sub/local_only",
+            "src/main.rs"
+        ]
+    );
 }
 
 #[test]
 fn stage_keeps_entry_of_tracked_file_that_became_ignored() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = Repo::new(dir.path()).expect("should create repo");
+    let (repo, dir) = include_repo!("fixtures/repos/repo-11.tar");
 
-    fs::write(dir.path().join("tracked.log"), b"tracked").unwrap();
-    repo.stage(dir.path()).expect("should stage repo root");
-
-    fs::write(dir.path().join(".gitignore"), b"*.log\n").unwrap();
+    fs::write(dir.path().join("src/.gitignore"), b"*.rs\n").unwrap();
     repo.stage(dir.path()).expect("should stage repo root");
 
     let index = repo.store.index().expect("should read index");
     let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
 
-    assert_eq!(paths, vec![".gitignore", "tracked.log"]);
+    assert_eq!(
+        paths,
+        vec![
+            ".gitignore",
+            "important.log",
+            "nested/.gitignore",
+            "nested/sub/local_only",
+            "src/.gitignore",
+            "src/main.rs"
+        ]
+    );
 }
 
 #[test]
 fn stage_ignored_file_directly_does_not_stage_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = Repo::new(dir.path()).expect("should create repo");
-
-    fs::write(dir.path().join(".gitignore"), b"ignored.txt\n").unwrap();
-    let ignored_file = dir.path().join("ignored.txt");
-    fs::write(&ignored_file, b"content").unwrap();
+    let (repo, dir) = include_repo!("fixtures/repos/repo-11.tar");
+    let ignored_file = dir.path().join("debug.log");
 
     repo.stage(&ignored_file).expect("should succeed");
 
     let index = repo.store.index().expect("should read index");
-    assert_eq!(index.entries().count(), 0);
+    let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
+
+    assert_eq!(
+        paths,
+        vec![
+            ".gitignore",
+            "important.log",
+            "nested/.gitignore",
+            "nested/sub/local_only",
+            "src/main.rs"
+        ]
+    );
 }
 
 #[test]
 fn stage_dot_git_directly_does_not_stage_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = Repo::new(dir.path()).expect("should create repo");
-
+    let (repo, dir) = include_repo!("fixtures/repos/repo-11.tar");
     let git_dir = dir.path().join(".git");
+
     repo.stage(&git_dir).expect("should succeed");
 
     let index = repo.store.index().expect("should read index");
-    assert_eq!(index.entries().count(), 0);
-}
-
-#[test]
-fn stage_respects_git_info_exclude() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = Repo::new(dir.path()).expect("should create repo");
-
-    fs::create_dir_all(dir.path().join(".git/info")).unwrap();
-    fs::write(dir.path().join(".git/info/exclude"), b"local_secret.txt\n").unwrap();
-    fs::write(dir.path().join("local_secret.txt"), b"secret").unwrap();
-    fs::write(dir.path().join("tracked.txt"), b"hello").unwrap();
-
-    repo.stage(dir.path()).expect("should stage repo root");
-
-    let index = repo.store.index().expect("should read index");
     let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
-    assert_eq!(paths, vec!["tracked.txt"]);
+
+    assert_eq!(
+        paths,
+        vec![
+            ".gitignore",
+            "important.log",
+            "nested/.gitignore",
+            "nested/sub/local_only",
+            "src/main.rs"
+        ]
+    );
 }
 
 #[test]
 fn stage_does_not_add_ignored_file_that_replaced_a_tracked_directory() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = Repo::new(dir.path()).expect("should create repo");
+    let (repo, dir) = include_repo!("fixtures/repos/repo-11.tar");
+    let src = dir.path().join("src");
 
-    let thing = dir.path().join("thing");
-    fs::create_dir(&thing).unwrap();
-    fs::write(thing.join("child"), b"child").unwrap();
-    repo.stage(dir.path()).expect("should stage repo root");
+    fs::remove_dir_all(&src).unwrap();
+    fs::write(&src, b"now a file").unwrap();
+    let mut gitignore = OpenOptions::new()
+        .append(true)
+        .open(dir.path().join(".gitignore"))
+        .unwrap();
+    writeln!(gitignore, "src").unwrap();
 
-    fs::remove_dir_all(&thing).unwrap();
-    fs::write(&thing, b"now a file").unwrap();
-    fs::write(dir.path().join(".gitignore"), b"thing\n").unwrap();
     repo.stage(dir.path()).expect("should stage repo root");
 
     let index = repo.store.index().expect("should read index");
     let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
 
-    assert_eq!(paths, vec![".gitignore"]);
+    assert_eq!(
+        paths,
+        vec![
+            ".gitignore",
+            "important.log",
+            "nested/.gitignore",
+            "nested/sub/local_only"
+        ]
+    );
 }
