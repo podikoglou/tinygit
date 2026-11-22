@@ -168,6 +168,24 @@ fn stage_nested_directory_respects_its_gitignore() {
 }
 
 #[test]
+fn stage_ignored_directory_does_not_apply_its_gitignore() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should create repo");
+
+    let ignored = dir.path().join("ignored");
+    fs::create_dir(&ignored).unwrap();
+
+    fs::write(dir.path().join(".gitignore"), b"ignored/\n").unwrap();
+    fs::write(ignored.join(".gitignore"), b"!*\n").unwrap();
+    fs::write(ignored.join("file.txt"), b"content").unwrap();
+
+    repo.stage(&ignored).expect("should succeed");
+
+    let index = repo.store.index().expect("should read index");
+    assert_eq!(index.entries().count(), 0);
+}
+
+#[test]
 fn stage_keeps_entry_of_tracked_file_that_became_ignored() {
     let dir = tempfile::tempdir().unwrap();
     let repo = Repo::new(dir.path()).expect("should create repo");
