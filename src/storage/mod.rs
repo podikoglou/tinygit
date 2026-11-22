@@ -7,7 +7,7 @@ use std::{
 
 use once_cell::sync::OnceCell;
 
-use bstr::{BStr, BString, ByteSlice};
+use bstr::BString;
 
 use crate::{
     TinygitError,
@@ -22,7 +22,7 @@ use crate::{
         tree::{Tree, TreeEntry, TreeKey},
     },
     storage::{
-        index::{Index, IndexEntry},
+        index::Index,
         object::{LazyObject, LooseDb, ObjectDb, ObjectsBucket, RawObject, packed::Packfile},
         reference::{Ref, RefName, RefPointer, db::RefsDb},
     },
@@ -214,51 +214,43 @@ impl Store {
     ///
     /// Equivalent to `git write-tree`.
     pub fn write_tree(&self) -> Result<ObjectHash, TinygitError> {
-        let index = self.index()?;
+        // directory -> entries of its tree. the root is the empty path
+        let mut trees: BTreeMap<String, BTreeMap<TreeKey, TreeEntry>> = BTreeMap::new();
 
-        let entries = index
-            .entries()
-            .map(|entry| (entry.path_name.as_bstr(), entry))
-            .collect();
+        for entry in self.index()?.entries() {
+            let path = entry.path_name.to_string();
+            let (dir, name) = path.rsplit_once('/').unwrap_or(("", &path));
 
-        self.write_tree_entries(entries)
-    }
+            let key = TreeKey::new(
+                FileName::try_new(name.to_string())?,
+                entry.mode.raw() as u16,
+            );
 
-    /// Writes index entries as a tree object and returns its hash.
-    ///
-    /// Each entry comes with its path relative to the tree. Entries inside of a directory are
-    /// written as a tree of their own.
-    fn write_tree_entries(
-        &self,
-        index_entries: Vec<(&BStr, &IndexEntry)>,
-    ) -> Result<ObjectHash, TinygitError> {
-        let mut entries = BTreeMap::new();
-        let mut dirs: BTreeMap<&BStr, Vec<(&BStr, &IndexEntry)>> = BTreeMap::new();
+            trees
+                .entry(dir.to_string())
+                .or_default()
+                .insert(key, TreeEntry::new(entry.hash.clone()));
+        }
 
-        for (path, entry) in index_entries {
-            match path.split_once_str("/") {
-                Some((dir, rest)) => dirs
-                    .entry(dir.as_bstr())
-                    .or_default()
-                    .push((rest.as_bstr(), entry)),
-                None => {
-                    let key = TreeKey::new(
-                        FileName::try_new(path.to_string())?,
-                        entry.mode.raw() as u16,
-                    );
+        // a directory sorts before the ones inside of it, so a tree is written before its parent
+        while let Some((dir, entries)) = trees.pop_last() {
+            let hash = self.write_object(&Object::Tree(Tree::new(entries)))?;
 
-                    entries.insert(key, TreeEntry::new(entry.hash.clone()));
-                }
+            if dir.is_empty() {
+                return Ok(hash);
             }
+
+            let (parent, name) = dir.rsplit_once('/').unwrap_or(("", &dir));
+            let key = TreeKey::new(FileName::try_new(name.to_string())?, 0o40000);
+
+            trees
+                .entry(parent.to_string())
+                .or_default()
+                .insert(key, TreeEntry::new(hash));
         }
 
-        for (dir, dir_entries) in dirs {
-            let key = TreeKey::new(FileName::try_new(dir.to_string())?, 0o40000);
-
-            entries.insert(key, TreeEntry::new(self.write_tree_entries(dir_entries)?));
-        }
-
-        self.write_object(&Object::Tree(Tree::new(entries)))
+        // an empty index is an empty tree
+        self.write_object(&Object::Tree(Tree::new(BTreeMap::new())))
     }
 
     /// Commits the current index and moves `HEAD`.
