@@ -198,7 +198,7 @@ impl Repo {
                 }
 
                 if child_metadata.is_dir() {
-                    let child_ignore = dir_ignore.child(&child_path)?;
+                    let child_ignore = dir_ignore.child(dir_ignore.root.join(&child_relative))?;
                     queue.push((child_path, child_relative, child_ignore));
                 } else {
                     entries.push(self.stage_file(&child_path, &child_relative, &child_metadata)?);
