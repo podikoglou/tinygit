@@ -865,14 +865,13 @@ mod fuzz {
     use nutype::nutype;
     use std::{
         collections::{BTreeMap, BTreeSet},
-        ffi::OsStr,
         fs,
-        path::Path,
+        path::{Path, PathBuf},
     };
     use strum::EnumDiscriminants;
     use tempfile::TempDir;
     use tinygit::{
-        Repo,
+        Repo, TinygitError,
         identity::{Email, Identity, Name as IdentityName},
         storage::index::{Index, IndexEntry},
         time::Timestamp,
@@ -913,103 +912,21 @@ mod fuzz {
             .map(|oid| oid.to_string())
     }
 
-    /// A working-tree name component. The lowercase-only alphabet keeps names
-    /// literal in libgit2 pathspec matches (no glob metacharacters), and can
-    /// never spell `.gitignore` (no `.`) or inject separators (no `/`).
+    /// The name of a file or directory. Made of lowercase letters, so that it is never a glob.
     #[derive(Debug, Clone, TypeGenerator)]
     struct Name(#[generator(produce::<String>().with().len(1..=255).chars('a'..='z'))] String);
 
-    /// A working-tree relative file path: 1..=3 slash-joined name components.
-    #[derive(Debug, Clone)]
-    struct RelPath(String);
-
-    /// A working-tree relative directory path; `""` is the repository root.
-    #[derive(Debug, Clone)]
-    struct DirPath(String);
-
-    fn ignore_file_path(dir: &str) -> String {
-        if dir.is_empty() {
-            ".gitignore".into()
-        } else {
-            format!("{dir}/.gitignore")
-        }
-    }
-
-    fn create_parent(file_path: &Path) {
-        if let Some(parent) = file_path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-            fs::create_dir_all(parent).expect("should be able to create parent directories");
-        }
-    }
-
-    fn rel_path<D: bolero::Driver>(driver: &mut D) -> Option<RelPath> {
-        let subdirs = (0..=2usize).generate(driver)?;
-
-        let mut components = Vec::with_capacity(subdirs + 1);
-        for _ in 0..subdirs {
-            components.push(Name::generate(driver)?.0);
-        }
-        components.push(Name::generate(driver)?.0);
-
-        Some(RelPath(components.join("/")))
-    }
-
-    /// Generates `.gitignore` contents restricted to tinygit's supported
-    /// pattern subset. Atoms are lowercase-only so no glob metacharacters or
-    /// escapes are ever produced. Existing file basenames are preferred half
-    /// the time so ignore rules frequently collide with real files.
-    ///
-    /// NOTE: negation is deliberately absent from the pool. libgit2's ignore
-    /// engine diverges from real git when a negation in a deeper
-    /// `.gitignore` would override a positive pattern from a shallower one:
-    /// `status_should_ignore` reports the file as ignored where
-    /// `git check-ignore` (exit 1) and `git add` both treat it as un-ignored.
-    /// The oracle cannot referee that case, so it is not generated;
-    /// negation stays covered by the root-level tests, where libgit2
-    /// agrees with git.
-    fn pattern_file<D: bolero::Driver>(
-        driver: &mut D,
-        working: &BTreeMap<String, Vec<u8>>,
-    ) -> Option<Vec<u8>> {
-        let basenames: Vec<String> = working
-            .keys()
-            .map(|path| Path::new(path.as_str()))
-            .filter_map(|path| path.file_name())
-            .map(|name| name.to_string_lossy().into_owned())
-            .filter(|name| name.chars().all(|c| c.is_ascii_lowercase()))
-            .collect();
-
-        let atom = |driver: &mut D| -> Option<String> {
-            let use_existing =
-                !basenames.is_empty() && <bool as TypeGenerator>::generate(driver)?;
-            if use_existing {
-                one_value_of(&basenames[..]).generate(driver)
-            } else {
-                produce::<String>().with().len(1..=8).chars('a'..='z').generate(driver)
-            }
-        };
-
-        let mut contents = String::new();
-        for _ in 0..(0..=3usize).generate(driver)? {
-            let pattern = match (0..5usize).generate(driver)? {
-                0 => atom(driver)?,
-                1 => format!(
-                    "*.{}",
-                    if <bool as TypeGenerator>::generate(driver)? {
-                        "tmp"
-                    } else {
-                        "log"
-                    }
-                ),
-                2 => format!("{}/", atom(driver)?),
-                3 => format!("/{}", atom(driver)?),
-                _ => format!("{}/{}", atom(driver)?, atom(driver)?),
-            };
-            contents.push_str(&pattern);
-            contents.push('\n');
-        }
-
-        Some(contents.into_bytes())
-    }
+    /// A path relative to the root of the working tree.
+    #[derive(Debug, Clone, TypeGenerator)]
+    struct RelPath(
+        #[generator(
+            produce::<Vec<Name>>()
+                .with()
+                .len(1..=3usize)
+                .map_gen(|names| names.into_iter().map(|name| name.0).collect())
+        )]
+        PathBuf,
+    );
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum Modification {
@@ -1040,10 +957,10 @@ mod fuzz {
     enum Op {
         Create(RelPath, Vec<u8>),
         Modify(RelPath, Modification),
-        /// Writes a `.gitignore` file under the given directory.
-        Ignore(DirPath, Vec<u8>),
-        GitAdd(RelPath),
-        GitRm(RelPath),
+        /// Writes a `.gitignore` file.
+        Ignore(RelPath, Vec<u8>),
+        GitAdd(Vec<RelPath>),
+        GitRm(Vec<RelPath>),
         GitCommit,
     }
 
@@ -1055,70 +972,38 @@ mod fuzz {
             let mut seq: Vec<Op> = Vec::default();
 
             // working tree: file path -> file contents
-            let mut working: BTreeMap<String, Vec<u8>> = BTreeMap::default();
+            let mut working: BTreeMap<PathBuf, Vec<u8>> = BTreeMap::default();
+
+            // directories, which outlive their files. the root is the empty path
+            let mut dirs: BTreeSet<PathBuf> = BTreeSet::from([PathBuf::new()]);
 
             // tracked files
-            let mut index: BTreeSet<String> = BTreeSet::default();
-
-            // Directories are a derived view: a directory exists iff some file
-            // lives under it (git cannot represent empty directories).
-            // Directories emptied by `git rm` linger on disk; the model simply
-            // never targets them again.
-            let dirs = |working: &BTreeMap<String, Vec<u8>>| -> Vec<String> {
-                let mut dirs = BTreeSet::from([String::new()]);
-                for path in working.keys() {
-                    dirs.extend(
-                        Path::new(path)
-                            .ancestors()
-                            .skip(1)
-                            .take_while(|dir| !dir.as_os_str().is_empty())
-                            .map(|dir| dir.to_string_lossy().into_owned()),
-                    );
-                }
-                dirs.into_iter().collect()
-            };
+            let mut index: BTreeSet<PathBuf> = BTreeSet::default();
 
             let n = (0..32usize).generate(driver)?;
 
             for _ in 0..n {
                 let mut kinds = Vec::default();
 
+                // the root always exists, so there is always something to ignore or stage.
                 kinds.push(OpDiscriminants::Create);
                 kinds.push(OpDiscriminants::Ignore);
+                kinds.push(OpDiscriminants::GitAdd);
 
-                // `.gitignore` files are meta files generated from a
-                // constrained pattern pool; `Modify` must not splice
-                // arbitrary bytes into them or it produces patterns outside
-                // tinygit's supported subset.
-                let modifiable: Vec<String> = working
+                // `.gitignore` files are not modified, random bytes are not valid patterns.
+                let files: Vec<PathBuf> = working
                     .keys()
-                    .filter(|path| {
-                        Path::new(path.as_str()).file_name() != Some(OsStr::new(".gitignore"))
-                    })
+                    .filter(|path| !path.ends_with(".gitignore"))
                     .cloned()
                     .collect();
-                if !modifiable.is_empty() {
+
+                if !files.is_empty() {
                     kinds.push(OpDiscriminants::Modify);
                 }
 
-                // staging targets any existing file or directory; the
-                // derived directory set always contains the repository root
-                let current_dirs = dirs(&working);
-                let mut stage_targets: Vec<String> = working.keys().cloned().collect();
-                stage_targets.extend(current_dirs.iter().cloned());
-                kinds.push(OpDiscriminants::GitAdd);
-
-                // `git rm` requires a staged path that still exists as a
-                // file; `git commit` requires a non-empty index.
-                let removable: Vec<String> = index
-                    .iter()
-                    .filter(|path| working.contains_key(*path))
-                    .cloned()
-                    .collect();
-                if !removable.is_empty() {
-                    kinds.push(OpDiscriminants::GitRm);
-                }
+                // `git rm` and `git commit` require a non-empty index.
                 if !index.is_empty() {
+                    kinds.push(OpDiscriminants::GitRm);
                     kinds.push(OpDiscriminants::GitCommit);
                 }
 
@@ -1126,36 +1011,25 @@ mod fuzz {
 
                 let op = match kind {
                     OpDiscriminants::Create => {
-                        let path = rel_path(driver)?;
-
-                        // A path that already is a directory (the write would
-                        // fail with `IsADirectory`) or that has a file for an
-                        // ancestor (parent creation would fail with
-                        // `NotADirectory`) cannot exist in the current tree.
-                        // Abandon the sequence instead of retrying: the
-                        // driver may deterministically re-offer the same
-                        // value forever.
-                        if current_dirs.contains(&path.0)
-                            || Path::new(&path.0)
-                                .ancestors()
-                                .skip(1)
-                                .any(|ancestor| {
-                                    working.contains_key(ancestor.to_string_lossy().as_ref())
-                                })
-                        {
-                            return None;
-                        }
-
+                        let name = RelPath::generate(driver)?;
                         let contents = <Vec<u8> as TypeGenerator>::generate(driver)?;
 
-                        working.insert(path.0.clone(), contents.clone());
+                        // a file can't replace a directory, or be inside of another file.
+                        let mut parents = name.0.ancestors().skip(1);
 
-                        Op::Create(path, contents)
+                        if dirs.contains(&name.0) || parents.any(|dir| working.contains_key(dir)) {
+                            continue;
+                        }
+
+                        working.insert(name.0.clone(), contents.clone());
+                        dirs.extend(name.0.ancestors().skip(1).map(Path::to_path_buf));
+
+                        Op::Create(name, contents)
                     }
                     OpDiscriminants::Modify => {
-                        let path = RelPath(one_value_of(&modifiable[..]).generate(driver)?);
+                        let name = RelPath(one_value_of(&files[..]).generate(driver)?);
                         let contents = working
-                            .get_mut(&path.0)
+                            .get_mut(&name.0)
                             .expect("file must exist in working tree");
 
                         let is_insert = if contents.is_empty() {
@@ -1179,33 +1053,70 @@ mod fuzz {
 
                         delta.apply(contents);
 
-                        Op::Modify(path, delta)
+                        Op::Modify(name, delta)
                     }
                     OpDiscriminants::Ignore => {
-                        let dir = DirPath(one_value_of(&current_dirs[..]).generate(driver)?);
-                        let contents = pattern_file(driver, &working)?;
+                        let dirs: Vec<PathBuf> = dirs.iter().cloned().collect();
+                        let name =
+                            RelPath(one_value_of(&dirs[..]).generate(driver)?.join(".gitignore"));
 
-                        working.insert(ignore_file_path(&dir.0), contents.clone());
+                        // patterns are made of the names in the working tree, and one that isn't.
+                        let mut names: Vec<String> = files
+                            .iter()
+                            .flat_map(|path| path.iter())
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .collect();
+                        names.push(Name::generate(driver)?.0);
 
-                        Op::Ignore(dir, contents)
+                        let mut contents = String::new();
+
+                        for _ in 0..(0..=3usize).generate(driver)? {
+                            let a = one_value_of(&names[..]).generate(driver)?;
+                            let b = one_value_of(&names[..]).generate(driver)?;
+
+                            // NOTE: negation is left out. in a nested `.gitignore`, libgit2 does
+                            // not let it override a pattern of a parent directory, but git does.
+                            let patterns = [
+                                format!("{a}\n"),
+                                format!("{a}/\n"),
+                                format!("/{a}\n"),
+                                format!("{a}/{b}\n"),
+                                format!("{}*\n", &a[..1]),
+                                format!("*{}\n", &a[a.len() - 1..]),
+                            ];
+
+                            contents += &one_value_of(&patterns[..]).generate(driver)?;
+                        }
+
+                        working.insert(name.0.clone(), contents.clone().into_bytes());
+
+                        Op::Ignore(name, contents.into_bytes())
                     }
                     OpDiscriminants::GitAdd => {
-                        let target = RelPath(one_value_of(&stage_targets[..]).generate(driver)?);
+                        let names: Vec<PathBuf> = working.keys().chain(&dirs).cloned().collect();
+                        let name = RelPath(one_value_of(&names[..]).generate(driver)?);
 
-                        index.insert(target.0.clone());
+                        // staging a directory stages the files inside of it.
+                        index.extend(
+                            working
+                                .keys()
+                                .filter(|path| path.starts_with(&name.0))
+                                .cloned(),
+                        );
 
-                        Op::GitAdd(target)
+                        Op::GitAdd(vec![name])
                     }
                     OpDiscriminants::GitRm => {
-                        let path = RelPath(one_value_of(&removable[..]).generate(driver)?);
+                        let names: Vec<PathBuf> = index.iter().cloned().collect();
+                        let name = RelPath(one_value_of(&names[..]).generate(driver)?);
 
                         assert!(
-                            working.remove(&path.0).is_some(),
+                            working.remove(&name.0).is_some(),
                             "name should exist in the working tree"
                         );
-                        assert!(index.remove(&path.0), "name should exist in the index");
+                        assert!(index.remove(&name.0), "name should exist in the index");
 
-                        Op::GitRm(path)
+                        Op::GitRm(vec![name])
                     }
                     OpDiscriminants::GitCommit => Op::GitCommit,
                 };
@@ -1296,45 +1207,51 @@ mod fuzz {
 
     fn run_op(repo: &Repository, op: &Op) {
         let path = repo.workdir().expect("repo must have a workdir");
+
+        // libgit2 caches `.gitignore` files, and doesn't notice one that is rewritten right after
+        // it was read. a repository that was just opened has nothing cached.
+        let repo = Repository::open(path).expect("should be able to open git repo");
+
         match op {
-            Op::Create(rel, contents) => {
-                let file_path = path.join(&rel.0);
-                create_parent(&file_path);
+            Op::Create(name, contents) | Op::Ignore(name, contents) => {
+                let file_path = path.join(&name.0);
+                fs::create_dir_all(file_path.parent().expect("file should have a parent"))
+                    .expect("should be able to create directories");
                 fs::write(&file_path, contents).expect("should be able to write file");
             }
-            Op::Modify(rel, delta) => {
-                let file_path = path.join(&rel.0);
+            Op::Modify(name, delta) => {
+                let file_path = path.join(&name.0);
                 let mut contents =
                     fs::read(&file_path).expect("should be able to read file to modify");
                 delta.apply(&mut contents);
                 fs::write(&file_path, contents).expect("should be able to write modified file");
             }
-            Op::Ignore(dir, contents) => {
-                let file_path = path.join(ignore_file_path(&dir.0));
-                create_parent(&file_path);
-                fs::write(&file_path, contents).expect("should be able to write ignore file");
-            }
-            Op::GitAdd(target) => {
+            Op::GitAdd(names) => {
                 let mut index = repo.index().expect("should be able to get repo index");
-                // `add_all` respects gitignore rules and recurses into
-                // directory pathspecs, unlike `add_path`. A pathspec whose
-                // every match is ignored errors, which just means nothing was
-                // staged and is not a failure here.
-                let pathspec = if target.0.is_empty() { "." } else { target.0.as_str() };
-                let _ = index.add_all([pathspec], IndexAddOption::DEFAULT, None);
+
+                // unlike `add_path`, `add_all` stages directories and respects `.gitignore` files
+                index
+                    .add_all(
+                        names.iter().map(|name| name.0.as_path()),
+                        IndexAddOption::DEFAULT,
+                        None,
+                    )
+                    .expect("libgit2 should be able to add files");
                 index
                     .write()
                     .expect("libgit2 should be able to write index");
             }
-            Op::GitRm(rel) => {
+            Op::GitRm(names) => {
                 let mut index = repo.index().expect("should be able to get repo index");
-                let file_path = path.join(&rel.0);
-                if file_path.exists() {
-                    let _ = fs::remove_file(&file_path);
+                for name in names {
+                    let file_path = path.join(&name.0);
+                    if file_path.exists() {
+                        let _ = fs::remove_file(&file_path);
+                    }
+                    index
+                        .remove_path(&name.0)
+                        .expect("libgit2 should be able to remove file");
                 }
-                // the index entry may be absent when the file was ignored at
-                // staging time
-                let _ = index.remove_path(Path::new(&rel.0));
                 index
                     .write()
                     .expect("libgit2 should be able to write index");
@@ -1343,23 +1260,22 @@ mod fuzz {
                 let signature = commit_signature();
 
                 let mut index = repo.index().expect("should be able to get repo index");
-                let is_empty = index.is_empty();
 
-                let (parents, parent_tree) = match repo.head() {
-                    Ok(head) => {
-                        let commit = head
-                            .peel_to_commit()
-                            .expect("libgit2 should be able to peel HEAD");
-                        (vec![commit.clone()], Some(commit.tree_id()))
-                    }
-                    Err(_) => (Vec::new(), None),
+                let parents = match repo.head() {
+                    Ok(head) => vec![
+                        head.peel_to_commit()
+                            .expect("libgit2 should be able to peel HEAD"),
+                    ],
+                    Err(_) => Vec::new(),
                 };
+                let parent_refs: Vec<&Git2Commit> = parents.iter().collect();
 
-                // Mirror tinygit's commit policy exactly: an empty index is
-                // only committed when it removes entries from the parent
-                // tree. Whether to refuse no-op commits is a policy question
-                // outside the differential's scope; content is what matters.
-                if is_empty && parent_tree.is_none() {
+                // like tinygit, only commit an empty index when it removes the parent's entries
+                if index.is_empty()
+                    && parents
+                        .iter()
+                        .all(|parent| parent.tree().is_ok_and(|tree| tree.is_empty()))
+                {
                     return;
                 }
 
@@ -1369,12 +1285,6 @@ mod fuzz {
                 let tree = repo
                     .find_tree(tree_oid)
                     .expect("libgit2 should be able to find tree");
-
-                if is_empty && parent_tree == Some(tree_oid) {
-                    return;
-                }
-
-                let parent_refs: Vec<&Git2Commit> = parents.iter().collect();
 
                 repo.commit(
                     Some("HEAD"),
@@ -1401,32 +1311,26 @@ mod fuzz {
     fn run_op_tinygit(repo: &Repo, libgit2_repo: &Repository, op: &Op) {
         let path = &repo.path;
         match op {
-            Op::Create(rel, contents) => {
-                let file_path = path.join(&rel.0);
-                create_parent(&file_path);
+            Op::Create(name, contents) | Op::Ignore(name, contents) => {
+                let file_path = path.join(&name.0);
+                fs::create_dir_all(file_path.parent().expect("file should have a parent"))
+                    .expect("should be able to create directories");
                 fs::write(&file_path, contents).expect("should be able to write file");
             }
-            Op::Modify(rel, delta) => {
-                let file_path = path.join(&rel.0);
+            Op::Modify(name, delta) => {
+                let file_path = path.join(&name.0);
                 let mut contents =
                     fs::read(&file_path).expect("should be able to read file to modify");
                 delta.apply(&mut contents);
                 fs::write(&file_path, contents).expect("should be able to write modified file");
             }
-            Op::Ignore(dir, contents) => {
-                let file_path = path.join(ignore_file_path(&dir.0));
-                create_parent(&file_path);
-                fs::write(&file_path, contents).expect("should be able to write ignore file");
+            Op::GitAdd(names) => {
+                for name in names {
+                    repo.stage(path.join(&name.0))
+                        .expect("tinygit stage shouldn't fail");
+                }
             }
-            Op::GitAdd(target) => {
-                let stage_path = if target.0.is_empty() {
-                    path.to_path_buf()
-                } else {
-                    path.join(&target.0)
-                };
-                repo.stage(stage_path).expect("tinygit stage shouldn't fail");
-            }
-            Op::GitRm(rel) => {
+            Op::GitRm(names) => {
                 let mut index = libgit2_repo
                     .index()
                     .expect("should be able to get repo index");
@@ -1434,13 +1338,15 @@ mod fuzz {
                 // tinygit writes the index directly, so libgit2's cached copy can be stale
                 let _ = index.read(false);
 
-                let file_path = path.join(&rel.0);
-                if file_path.exists() {
-                    let _ = fs::remove_file(&file_path);
+                for name in names {
+                    let file_path = path.join(&name.0);
+                    if file_path.exists() {
+                        let _ = fs::remove_file(&file_path);
+                    }
+                    index
+                        .remove_path(&name.0)
+                        .expect("libgit2 should be able to remove file");
                 }
-                // the index entry may be absent when the file was ignored at
-                // staging time
-                let _ = index.remove_path(Path::new(&rel.0));
                 index
                     .write()
                     .expect("libgit2 should be able to write index");
@@ -1448,11 +1354,9 @@ mod fuzz {
             Op::GitCommit => {
                 let (author, committer) = tinygit_signature();
 
-                // committing an empty index is a policy question, out of scope
-                // for the differential: the oracle side skips it, so skip the
-                // same case here instead of surfacing `EmptyTree`
+                // the index is empty when every staged file is ignored
                 match repo.store.commit(COMMIT_MESSAGE, author, committer) {
-                    Err(tinygit::TinygitError::EmptyTree) => {}
+                    Err(TinygitError::EmptyTree) => {}
                     other => {
                         other.expect("tinygit commit shouldn't fail");
                     }
