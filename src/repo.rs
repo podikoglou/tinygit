@@ -15,7 +15,7 @@ use crate::{
     ignore::Ignore,
     object::{blob::Blob, Object},
     storage::{
-        index::{Flags, IndexEntry, Mode, ObjectType},
+        index::{Flags, Index, IndexEntry, Mode, ObjectType},
         object::RawObject,
         reference::RefPointer,
         Store,
@@ -87,6 +87,8 @@ impl Repo {
     /// The index is updated once after all entries have been collected. Entries that the
     /// staged subtree no longer contains are removed, so staging a directory also records
     /// deletions of tracked files.
+    ///
+    /// Ignored files are skipped, unless they are already in the index.
     pub fn stage(&self, path: impl AsRef<Path>) -> Result<(), TinygitError> {
         let path = path.as_ref().components().as_path();
 
@@ -97,11 +99,18 @@ impl Repo {
 
         let relative_path = self.relative_path(path, metadata.is_symlink())?;
         let root = self.path.canonicalize()?;
-        let ignore = Ignore::for_dir(&root)?;
 
-        let entries = self.collect_entries(path, &relative_path, &metadata, &ignore)?;
+        // a file is subject to the rules of the directory it is in
+        let mut dir = root.join(&relative_path);
+        if !metadata.is_dir() {
+            dir.pop();
+        }
+        let ignore = Ignore::for_dir(dir)?;
 
         let mut index = self.store.index()?;
+
+        let entries = self.collect_entries(path, &relative_path, &metadata, &ignore, &index)?;
+
         let existing = index.entries().count();
 
         // removes
@@ -160,9 +169,13 @@ impl Repo {
         relative_path: &Path,
         metadata: &fs::Metadata,
         ignore: &Ignore,
+        index: &Index,
     ) -> Result<Vec<IndexEntry>, TinygitError> {
         if !metadata.is_dir() {
-            if !relative_path.as_os_str().is_empty() && ignore.is_ignored(relative_path, false) {
+            if !relative_path.as_os_str().is_empty()
+                && ignore.is_ignored(relative_path, false)
+                && !index.is_tracked(relative_path, false)
+            {
                 return Ok(Vec::new());
             }
             return Ok(vec![self.stage_file(path, relative_path, metadata)?]);
@@ -178,7 +191,9 @@ impl Repo {
                 let child_relative = dir_relative.join(child.file_name());
                 let child_metadata = fs::symlink_metadata(&child_path)?;
 
-                if dir_ignore.is_ignored(&child_relative, child_metadata.is_dir()) {
+                if dir_ignore.is_ignored(&child_relative, child_metadata.is_dir())
+                    && !index.is_tracked(&child_relative, child_metadata.is_dir())
+                {
                     continue;
                 }
 

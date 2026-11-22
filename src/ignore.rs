@@ -32,8 +32,6 @@ impl IgnorePattern {
 
         let target_path = if self.prefix.is_empty() {
             path
-        } else if path == self.prefix.as_bstr() {
-            b"".as_bstr()
         } else if let Some(rest) = path.strip_prefix(self.prefix.as_bytes()) {
             if let Some(rest) = rest.strip_prefix(b"/") {
                 rest.as_bstr()

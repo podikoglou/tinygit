@@ -214,18 +214,43 @@ impl Store {
     ///
     /// Equivalent to `git write-tree`.
     pub fn write_tree(&self) -> Result<ObjectHash, TinygitError> {
-        let mut entries = BTreeMap::new();
+        // directory -> entries of its tree. the root is the empty path
+        let mut trees: BTreeMap<String, BTreeMap<TreeKey, TreeEntry>> = BTreeMap::new();
 
         for entry in self.index()?.entries() {
+            let path = entry.path_name.to_string();
+            let (dir, name) = path.rsplit_once('/').unwrap_or(("", &path));
+
             let key = TreeKey::new(
-                FileName::try_new(entry.path_name.to_string())?,
+                FileName::try_new(name.to_string())?,
                 entry.mode.raw() as u16,
             );
 
-            entries.insert(key, TreeEntry::new(entry.hash.clone()));
+            trees
+                .entry(dir.to_string())
+                .or_default()
+                .insert(key, TreeEntry::new(entry.hash.clone()));
         }
 
-        self.write_object(&Object::Tree(Tree::new(entries)))
+        // a directory sorts before the ones inside of it, so a tree is written before its parent
+        while let Some((dir, entries)) = trees.pop_last() {
+            let hash = self.write_object(&Object::Tree(Tree::new(entries)))?;
+
+            if dir.is_empty() {
+                return Ok(hash);
+            }
+
+            let (parent, name) = dir.rsplit_once('/').unwrap_or(("", &dir));
+            let key = TreeKey::new(FileName::try_new(name.to_string())?, 0o40000);
+
+            trees
+                .entry(parent.to_string())
+                .or_default()
+                .insert(key, TreeEntry::new(hash));
+        }
+
+        // an empty index is an empty tree
+        self.write_object(&Object::Tree(Tree::new(BTreeMap::new())))
     }
 
     /// Commits the current index and moves `HEAD`.
