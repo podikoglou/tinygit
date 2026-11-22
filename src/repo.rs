@@ -174,7 +174,7 @@ impl Repo {
         if !metadata.is_dir() {
             if !relative_path.as_os_str().is_empty()
                 && ignore.is_ignored(relative_path, false)
-                && !index.is_tracked(relative_path)
+                && !index.is_tracked(relative_path, false)
             {
                 return Ok(Vec::new());
             }
@@ -192,7 +192,7 @@ impl Repo {
                 let child_metadata = fs::symlink_metadata(&child_path)?;
 
                 if dir_ignore.is_ignored(&child_relative, child_metadata.is_dir())
-                    && !index.is_tracked(&child_relative)
+                    && !index.is_tracked(&child_relative, child_metadata.is_dir())
                 {
                     continue;
                 }

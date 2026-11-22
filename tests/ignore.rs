@@ -245,3 +245,24 @@ fn stage_respects_git_info_exclude() {
     let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
     assert_eq!(paths, vec!["tracked.txt"]);
 }
+
+#[test]
+fn stage_does_not_add_ignored_file_that_replaced_a_tracked_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should create repo");
+
+    let thing = dir.path().join("thing");
+    fs::create_dir(&thing).unwrap();
+    fs::write(thing.join("child"), b"child").unwrap();
+    repo.stage(dir.path()).expect("should stage repo root");
+
+    fs::remove_dir_all(&thing).unwrap();
+    fs::write(&thing, b"now a file").unwrap();
+    fs::write(dir.path().join(".gitignore"), b"thing\n").unwrap();
+    repo.stage(dir.path()).expect("should stage repo root");
+
+    let index = repo.store.index().expect("should read index");
+    let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
+
+    assert_eq!(paths, vec![".gitignore"]);
+}

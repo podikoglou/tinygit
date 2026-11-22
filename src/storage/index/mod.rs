@@ -105,10 +105,16 @@ impl Index {
     }
 
     /// Checks whether `path` is the path of an entry, or of a directory that contains one.
-    pub fn is_tracked(&self, path: &Path) -> bool {
-        self.entries
-            .iter()
-            .any(|entry| Path::new(OsStr::from_bytes(&entry.path_name)).starts_with(path))
+    pub fn is_tracked(&self, path: &Path, is_dir: bool) -> bool {
+        self.entries.iter().any(|entry| {
+            let entry_path = Path::new(OsStr::from_bytes(&entry.path_name));
+
+            if is_dir {
+                entry_path.starts_with(path)
+            } else {
+                entry_path == path
+            }
+        })
     }
 
     /// Adds `entry` to the index, keeping the entries sorted by path name.
