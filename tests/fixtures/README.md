@@ -17,6 +17,7 @@
 - `repo-8`: Repo with a commit containing a subdirectory and files sharing prefixes (`foo-bar`, `foo.c`, `foo/bar.rs`)
 - `repo-9`: Repo with random commits, branches and tags. Comes with a a script (inside it) for generating similar repos.
 - `repo-10`: Repo with an index containing extension blocks (such as cached tree `TREE`)
+- `repo-11`: Repo with `.gitignore` files in the root and in a subdirectory, a `.git/info/exclude`, and ignored files left in the working tree
 
 ### Creating a repository fixture
 - Create a repository somewhere, initialize it as you like
