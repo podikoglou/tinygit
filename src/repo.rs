@@ -97,7 +97,13 @@ impl Repo {
 
         let relative_path = self.relative_path(path, metadata.is_symlink())?;
         let root = self.path.canonicalize()?;
-        let ignore = Ignore::for_dir(&root)?;
+
+        // a file is subject to the rules of the directory it is in
+        let mut dir = root.join(&relative_path);
+        if !metadata.is_dir() {
+            dir.pop();
+        }
+        let ignore = Ignore::for_dir(dir)?;
 
         let entries = self.collect_entries(path, &relative_path, &metadata, &ignore)?;
 
