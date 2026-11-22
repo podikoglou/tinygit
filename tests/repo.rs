@@ -514,6 +514,44 @@ fn write_tree_contains_staged_entries() {
 }
 
 #[test]
+fn write_tree_writes_directories_as_trees() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    fs::create_dir_all(dir.path().join("dir/nested")).unwrap();
+    fs::write(dir.path().join("file"), b"outer").unwrap();
+    fs::write(dir.path().join("dir/nested/file"), b"inner").unwrap();
+    repo.stage(dir.path()).expect("should stage repo root");
+
+    let hash = repo
+        .store
+        .write_tree()
+        .expect("should be able to write tree");
+
+    assert_eq!(
+        hash.to_string(),
+        "d95d5509dac6713ab25582d072f17af2fd98be54",
+        "tree hash should match Git's"
+    );
+
+    let Object::Tree(tree) = repo
+        .store
+        .object(&hash)
+        .expect("tree should be present in the store")
+    else {
+        panic!("object should be a tree");
+    };
+
+    let entries = tree
+        .entries
+        .keys()
+        .map(|key| (key.as_str(), key.mode))
+        .collect::<Vec<_>>();
+
+    assert_eq!(entries, [("dir", 0o40000), ("file", 0o100644)]);
+}
+
+#[test]
 fn set_head_moves_symbolic_head_target() {
     let dir = tempfile::tempdir().unwrap();
     let repo = Repo::new(dir.path()).expect("should be able to create repository");

@@ -7,7 +7,7 @@ use std::{
 
 use once_cell::sync::OnceCell;
 
-use bstr::BString;
+use bstr::{BStr, BString, ByteSlice};
 
 use crate::{
     TinygitError,
@@ -22,7 +22,7 @@ use crate::{
         tree::{Tree, TreeEntry, TreeKey},
     },
     storage::{
-        index::Index,
+        index::{Index, IndexEntry},
         object::{LazyObject, LooseDb, ObjectDb, ObjectsBucket, RawObject, packed::Packfile},
         reference::{Ref, RefName, RefPointer, db::RefsDb},
     },
@@ -214,15 +214,48 @@ impl Store {
     ///
     /// Equivalent to `git write-tree`.
     pub fn write_tree(&self) -> Result<ObjectHash, TinygitError> {
+        let index = self.index()?;
+
+        let entries = index
+            .entries()
+            .map(|entry| (entry.path_name.as_bstr(), entry))
+            .collect();
+
+        self.write_tree_entries(entries)
+    }
+
+    /// Writes index entries as a tree object and returns its hash.
+    ///
+    /// Each entry comes with its path relative to the tree. Entries inside of a directory are
+    /// written as a tree of their own.
+    fn write_tree_entries(
+        &self,
+        index_entries: Vec<(&BStr, &IndexEntry)>,
+    ) -> Result<ObjectHash, TinygitError> {
         let mut entries = BTreeMap::new();
+        let mut dirs: BTreeMap<&BStr, Vec<(&BStr, &IndexEntry)>> = BTreeMap::new();
 
-        for entry in self.index()?.entries() {
-            let key = TreeKey::new(
-                FileName::try_new(entry.path_name.to_string())?,
-                entry.mode.raw() as u16,
-            );
+        for (path, entry) in index_entries {
+            match path.split_once_str("/") {
+                Some((dir, rest)) => dirs
+                    .entry(dir.as_bstr())
+                    .or_default()
+                    .push((rest.as_bstr(), entry)),
+                None => {
+                    let key = TreeKey::new(
+                        FileName::try_new(path.to_string())?,
+                        entry.mode.raw() as u16,
+                    );
 
-            entries.insert(key, TreeEntry::new(entry.hash.clone()));
+                    entries.insert(key, TreeEntry::new(entry.hash.clone()));
+                }
+            }
+        }
+
+        for (dir, dir_entries) in dirs {
+            let key = TreeKey::new(FileName::try_new(dir.to_string())?, 0o40000);
+
+            entries.insert(key, TreeEntry::new(self.write_tree_entries(dir_entries)?));
         }
 
         self.write_object(&Object::Tree(Tree::new(entries)))
