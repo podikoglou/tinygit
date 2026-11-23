@@ -3,7 +3,7 @@ use std::{
     fmt::{self, Display},
     io,
     num::TryFromIntError,
-    path::PathBuf,
+    path::{PathBuf, StripPrefixError},
     time::SystemTimeError,
 };
 
@@ -170,4 +170,7 @@ pub enum TinygitError {
 
     #[error("Invalid timestamp: {0}")]
     TimestampError(#[from] TimestampError),
+
+    #[error("Couldn't strip prefix: {0}")]
+    StripPrefixError(#[from] StripPrefixError),
 }
