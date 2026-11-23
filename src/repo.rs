@@ -215,6 +215,15 @@ impl Repo {
         relative_path: &Path,
         metadata: &fs::Metadata,
     ) -> Result<IndexEntry, TinygitError> {
+        // git rejects `.git` in any letter case, since some filesystems fold case
+        let is_inside_git_dir = relative_path
+            .components()
+            .any(|component| component.as_os_str().eq_ignore_ascii_case(".git"));
+
+        if is_inside_git_dir {
+            return Err(TinygitError::InvalidFileName);
+        }
+
         let (bytes, mode) = if metadata.is_symlink() {
             let target = fs::read_link(path)?;
             let mode = Mode::try_new(ObjectType::SymbolicLink, 0)?;
