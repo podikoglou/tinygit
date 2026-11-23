@@ -3,6 +3,8 @@ mod common;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 
+use tinygit::TinygitError;
+
 #[test]
 fn stage_repo_root_respects_ignore_rules() {
     let (repo, dir) = include_repo!("fixtures/repos/repo-11.tar");
@@ -141,6 +143,35 @@ fn stage_dot_git_directly_does_not_stage_it() {
     let git_dir = dir.path().join(".git");
 
     repo.stage(&git_dir).expect("should succeed");
+
+    let index = repo.store.index().expect("should read index");
+    let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
+
+    assert_eq!(
+        paths,
+        vec![
+            ".gitignore",
+            "important.log",
+            "nested/.gitignore",
+            "nested/sub/local_only",
+            "src/main.rs"
+        ]
+    );
+}
+
+#[test]
+fn stage_rejects_case_variant_of_dot_git() {
+    let (repo, dir) = include_repo!("fixtures/repos/repo-11.tar");
+    let variant = dir.path().join("nested/.Git");
+
+    fs::create_dir(&variant).unwrap();
+    fs::write(variant.join("fixture"), b"fixture").unwrap();
+
+    let err = repo
+        .stage(dir.path())
+        .expect_err("should fail for a path inside `.Git`");
+
+    assert!(matches!(err, TinygitError::InvalidFileName));
 
     let index = repo.store.index().expect("should read index");
     let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
