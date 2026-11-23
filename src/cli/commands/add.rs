@@ -16,7 +16,11 @@ impl AddCommand {
     pub fn run(self) -> Result<(), TinygitError> {
         let repo = Repo::open_closest(env::current_dir()?)?;
 
-        if !self.files.iter().all(|path| path.exists()) {
+        if self
+            .files
+            .iter()
+            .any(|path| path.symlink_metadata().is_err())
+        {
             return Err(TinygitError::InvalidFileName);
         }
 

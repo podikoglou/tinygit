@@ -1,6 +1,10 @@
 use std::{
-    fs,
-    os::unix::fs::{MetadataExt, PermissionsExt},
+    ffi::OsStr,
+    fs, io,
+    os::unix::{
+        ffi::OsStrExt,
+        fs::{MetadataExt, PermissionsExt},
+    },
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -73,65 +77,151 @@ impl Repo {
         Ok(Self { store, path })
     }
 
-    /// Stages a file into the working area.
-    pub fn stage(&self, file_path: impl AsRef<Path>) -> Result<(), TinygitError> {
-        let path = file_path.as_ref();
+    /// Stages a file, symbolic link, or the contents of a directory in the index.
+    ///
+    /// Relative input paths are resolved from the current directory. Index paths are
+    /// relative to the repository root. Symlinks are staged without following their
+    /// targets, and empty directories add no entries.
+    ///
+    /// The index is updated once after all entries have been collected. Entries that the
+    /// staged subtree no longer contains are removed, so staging a directory also records
+    /// deletions of tracked files.
+    pub fn stage(&self, path: impl AsRef<Path>) -> Result<(), TinygitError> {
+        let path = path.as_ref().components().as_path();
 
-        if !path.exists() {
-            return Err(TinygitError::InvalidFileName);
+        let metadata = fs::symlink_metadata(path).map_err(|err| match err.kind() {
+            io::ErrorKind::NotFound => TinygitError::InvalidFileName,
+            _ => err.into(),
+        })?;
+
+        let relative_path = self.relative_path(path, metadata.is_symlink())?;
+        let entries = self.collect_entries(path, &relative_path, &metadata)?;
+
+        let mut index = self.store.index()?;
+        let existing = index.entries().count();
+
+        // removes
+        let target = &relative_path;
+
+        index.retain(|entry| {
+            let entry_path = Path::new(OsStr::from_bytes(entry.path_name.as_slice()));
+
+            let conflicts = target.as_os_str().is_empty()
+                || entry_path.starts_with(target)
+                || target.starts_with(entry_path);
+
+            !conflicts
+        });
+
+        let removed = existing != index.entries().count();
+
+        if entries.is_empty() && !removed {
+            return Ok(());
         }
 
-        // check if path is within the repo
-        if !path.canonicalize()?.starts_with(&self.path.canonicalize()?) {
-            return Err(TinygitError::NotInRepo);
+        // adds
+        for entry in entries {
+            index.add_entry(entry);
         }
 
-        let path_name = &path
-            .canonicalize()?
-            .strip_prefix(&self.path)
-            .map(|s| BString::from(s.to_string_lossy().as_bytes()))?;
+        index.try_write()
+    }
 
-        let bytes = fs::read(path)?;
-        let object = Object::Blob(Blob(bytes));
-        let raw_object: RawObject = object.try_into()?;
+    /// Gets the path of a file relative to the root of the repository, handling symlinks.
+    fn relative_path(&self, path: &Path, is_symlink: bool) -> Result<PathBuf, TinygitError> {
+        let root = self.path.canonicalize()?;
 
-        // create blob
-        match self.store.encode_object(&raw_object) {
-            Err(TinygitError::ObjectExists) => {}
-            other => other?,
+        let canonical = if is_symlink {
+            let name = path.file_name().ok_or(TinygitError::InvalidFileName)?;
+
+            let parent = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+
+            parent.canonicalize()?.join(name)
+        } else {
+            path.canonicalize()?
         };
 
-        // get the metadata for the entry (before we even open the index, so as to keep the
-        // critical section as short as possible)
-        let metadata = fs::symlink_metadata(path)?;
+        canonical
+            .strip_prefix(&root)
+            .map(|p| p.into())
+            .map_err(|_| TinygitError::NotInRepo)
+    }
+
+    fn collect_entries(
+        &self,
+        path: &Path,
+        relative_path: &Path,
+        metadata: &fs::Metadata,
+    ) -> Result<Vec<IndexEntry>, TinygitError> {
+        if !metadata.is_dir() {
+            return Ok(vec![self.stage_file(path, relative_path, metadata)?]);
+        }
+
+        let mut entries = Vec::new();
+        let mut queue = vec![(path.to_path_buf(), relative_path.to_path_buf())];
+
+        while let Some((dir_path, dir_relative)) = queue.pop() {
+            for child in fs::read_dir(&dir_path)? {
+                let child = child?;
+                let child_path = child.path();
+                let child_relative = dir_relative.join(child.file_name());
+                let child_type = child.file_type()?;
+
+                if child_type.is_dir() {
+                    queue.push((child_path, child_relative));
+                } else {
+                    let child_metadata = fs::symlink_metadata(&child_path)?;
+                    entries.push(self.stage_file(&child_path, &child_relative, &child_metadata)?);
+                }
+            }
+        }
+
+        Ok(entries)
+    }
+
+    fn stage_file(
+        &self,
+        path: &Path,
+        relative_path: &Path,
+        metadata: &fs::Metadata,
+    ) -> Result<IndexEntry, TinygitError> {
+        let (bytes, mode) = if metadata.is_symlink() {
+            let target = fs::read_link(path)?;
+            let mode = Mode::try_new(ObjectType::SymbolicLink, 0)?;
+
+            (target.into_os_string().into_encoded_bytes(), mode)
+        } else if metadata.is_file() {
+            let permissions = if metadata.permissions().mode() & 0o100 != 0 {
+                0o755
+            } else {
+                0o644
+            };
+            let mode = Mode::try_new(ObjectType::Regular, permissions)?;
+
+            (fs::read(path)?, mode)
+        } else {
+            return Err(TinygitError::UnsupportedFileType);
+        };
+
+        let raw: RawObject = Object::Blob(Blob(bytes)).try_into()?;
+
+        match self.store.encode_object(&raw) {
+            Err(TinygitError::ObjectExists) => {}
+            other => other?,
+        }
+
         let ctime = metadata.created()?.duration_since(SystemTime::UNIX_EPOCH)?;
         let mtime = metadata
             .modified()?
             .duration_since(SystemTime::UNIX_EPOCH)?;
 
-        // TODO: support `ObjectType::GitLink`
-        let mode = if metadata.is_symlink() {
-            Mode::try_new(ObjectType::SymbolicLink, 0)
-        } else {
-            let is_executable = (&metadata.permissions().mode() & 0o100) != 0;
+        let path_name = BString::from(relative_path.as_os_str().as_encoded_bytes());
+        let name_length = path_name.len().min(0xFFF) as u16;
 
-            Mode::try_new(
-                ObjectType::Regular,
-                if is_executable { 0o755 } else { 0o644 },
-            )
-        }?;
-
-        let name_length = if path_name.len() > 0xFFF {
-            0xFFF
-        } else {
-            path_name.len() as u16
-        };
-
-        // Git treats a missing index file as an empty index.
-        let mut index = self.store.index()?;
-
-        // add the new entry
-        index.add_entry(IndexEntry {
+        Ok(IndexEntry {
             ctime_seconds: ctime.as_secs().try_into()?,
             ctime_ns_fractions: ctime.subsec_nanos(),
             mtime_seconds: mtime.as_secs().try_into()?,
@@ -142,13 +232,9 @@ impl Repo {
             uid: metadata.uid(),
             gid: metadata.gid(),
             file_size: metadata.size().try_into()?,
-            hash: raw_object.hash()?,
+            hash: raw.hash()?,
             flags: Flags::try_new(false, false, 0, name_length)?,
-            path_name: path_name.to_owned(),
-        });
-
-        index.try_write()?;
-
-        Ok(())
+            path_name,
+        })
     }
 }
