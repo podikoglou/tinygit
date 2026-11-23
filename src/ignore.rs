@@ -79,38 +79,49 @@ fn matches_path(pattern: &[u8], path: &[u8]) -> bool {
 ///
 /// `*` matches any run of bytes, `?` matches one byte, and `[...]` matches one byte out of
 /// a set. None of them match a `/`, so they never cross into another directory.
-fn matches_glob(pattern: &[u8], path: &[u8]) -> bool {
-    match pattern {
-        [] => path.is_empty(),
+fn matches_glob(mut pattern: &[u8], mut path: &[u8]) -> bool {
+    // What follows the last `*`, and the path it was last tried against. Only the last `*`
+    // is ever retried, so a pattern with many of them does not blow up.
+    let mut retry: Option<(&[u8], &[u8])> = None;
 
-        [b'/', rest @ ..] => path
-            .strip_prefix(b"/")
-            .is_some_and(|path| matches_path(rest, path)),
+    loop {
+        let next = match (pattern, path) {
+            ([], []) => return true,
 
-        [b'*', rest @ ..] => {
-            let component_end = path.find_byte(b'/').unwrap_or(path.len());
+            ([b'/', rest @ ..], [b'/', path @ ..]) => return matches_path(rest, path),
 
-            (0..=component_end).any(|skipped| matches_glob(rest, &path[skipped..]))
-        }
+            ([b'*', rest @ ..], _) => {
+                retry = Some((rest, path));
+                Some((rest, path))
+            }
 
-        [b'?', rest @ ..] => match path {
-            [byte, path @ ..] => *byte != b'/' && matches_glob(rest, path),
-            [] => false,
-        },
+            ([b'?', rest @ ..], [byte, path @ ..]) if *byte != b'/' => Some((rest, path)),
 
-        [b'[', rest @ ..] => match path {
-            [byte, path @ ..] if *byte != b'/' => match bracket_contains(rest, *byte) {
-                Some((contains, rest)) => contains && matches_glob(rest, path),
-                // git matches nothing with a bracket that is never closed
-                None => false,
-            },
-            _ => false,
-        },
+            ([b'[', rest @ ..], [byte, path @ ..]) if *byte != b'/' => {
+                match bracket_contains(rest, *byte) {
+                    Some((true, rest)) => Some((rest, path)),
+                    Some((false, _)) => None,
+                    // git matches nothing with a bracket that is never closed
+                    None => return false,
+                }
+            }
 
-        [byte, rest @ ..] => match path {
-            [first, path @ ..] => byte == first && matches_glob(rest, path),
-            [] => false,
-        },
+            ([byte, rest @ ..], [first, path @ ..]) if byte == first => Some((rest, path)),
+
+            _ => None,
+        };
+
+        (pattern, path) = match (next, retry) {
+            (Some(next), _) => next,
+
+            // let the last `*` take one more byte of its component
+            (None, Some((rest, [byte, path @ ..]))) if *byte != b'/' => {
+                retry = Some((rest, path));
+                (rest, path)
+            }
+
+            _ => return false,
+        };
     }
 }
 
@@ -381,6 +392,14 @@ mod tests {
 
         assert!(ignore.is_ignored("src/root.log", false));
         assert!(!ignore.is_ignored("src/nested/inside.log", false));
+    }
+
+    #[test]
+    fn many_asterisks_do_not_stall() {
+        let ignore = ignore_with(b"*a*a*a*a*a*a*a*a*a*a*a*a*b\n");
+
+        assert!(!ignore.is_ignored("a".repeat(64).as_str(), false));
+        assert!(ignore.is_ignored(format!("{}b", "a".repeat(64)).as_str(), false));
     }
 
     #[test]
