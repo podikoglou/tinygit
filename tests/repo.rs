@@ -1,13 +1,15 @@
 use std::{
+    ffi::OsStr,
     fs::{self, File},
-    os::unix::{fs::symlink, net::UnixListener},
+    os::unix::{ffi::OsStrExt, fs::symlink, net::UnixListener},
 };
 
+use bstr::ByteSlice;
 use chrono::{DateTime, FixedOffset};
 use tinygit::{
     Repo, TinygitError,
     identity::{Email, Identity, Name},
-    object::{Object, blob::Blob, hash::ObjectHash},
+    object::{Object, blob::Blob, hash::ObjectHash, tree::TreeKey},
     storage::reference::RefPointer,
     time::Timestamp,
 };
@@ -508,7 +510,7 @@ fn write_tree_contains_staged_entries() {
         .iter()
         .next()
         .expect("tree should have an entry");
-    assert_eq!(key.as_str(), "hello.txt", "entry name should match");
+    assert_eq!(key.as_bstr(), "hello.txt", "entry name should match");
     assert_eq!(key.mode, mode, "entry mode should match the index");
     assert_eq!(entry.object, blob_hash, "entry hash should match the index");
 }
@@ -545,10 +547,51 @@ fn write_tree_writes_directories_as_trees() {
     let entries = tree
         .entries
         .keys()
-        .map(|key| (key.as_str(), key.mode))
+        .map(|key| (key.name.to_string(), key.mode))
         .collect::<Vec<_>>();
 
-    assert_eq!(entries, [("dir", 0o40000), ("file", 0o100644)]);
+    assert_eq!(
+        entries,
+        [("dir".to_string(), 0o40000), ("file".to_string(), 0o100644)]
+    );
+}
+
+#[test]
+fn write_tree_keeps_file_names_that_are_not_utf8() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    // both names turn into U+FFFD when they are read as UTF-8
+    fs::write(dir.path().join(OsStr::from_bytes(b"\xfe")), b"a").unwrap();
+    fs::write(dir.path().join(OsStr::from_bytes(b"\xff")), b"b").unwrap();
+    repo.stage(dir.path()).expect("should stage repo root");
+
+    let hash = repo
+        .store
+        .write_tree()
+        .expect("should be able to write tree");
+
+    assert_eq!(
+        hash.to_string(),
+        "e20d938316fcc7d27bd2dca6751e34083e0a3312",
+        "tree hash should match Git's"
+    );
+
+    let Object::Tree(tree) = repo
+        .store
+        .object(&hash)
+        .expect("tree should be present in the store")
+    else {
+        panic!("object should be a tree");
+    };
+
+    let names = tree
+        .entries
+        .keys()
+        .map(TreeKey::as_bstr)
+        .collect::<Vec<_>>();
+
+    assert_eq!(names, [b"\xfe".as_bstr(), b"\xff".as_bstr()]);
 }
 
 #[test]
