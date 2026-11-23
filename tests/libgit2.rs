@@ -14,6 +14,7 @@ use git2::{
 use include_dir::{Dir, include_dir};
 use std::{fs, path::Path, str::FromStr};
 use tinygit::{
+    Ignore,
     ende::Encode,
     error::ParserContext,
     identity::{self, Email, Identity, Name},
@@ -716,6 +717,44 @@ fn head_matches() {
             oracle_commit.message().unwrap(),
             "HEAD commit messages match"
         );
+    }
+}
+
+#[test]
+fn ignored_paths_match() {
+    for repo_dir in REPOS_DIR.files() {
+        let (tinygit_repo, _dir) = unpack_repo(repo_dir.contents());
+        let (oracle_repo, _dir) = unpack_git2_repo(repo_dir.contents());
+
+        let mut dirs = vec![tinygit_repo.path.clone()];
+
+        while let Some(dir) = dirs.pop() {
+            let tinygit_ignore =
+                Ignore::for_dir(&dir).expect("tinygit should load the ignore rules");
+
+            for child in fs::read_dir(&dir).expect("should be able to read the directory") {
+                let path = child.expect("valid directory entry").path();
+                let relative_path = path
+                    .strip_prefix(&tinygit_repo.path)
+                    .expect("path should be inside of the repo");
+
+                let oracle_ignored = oracle_repo
+                    .status_should_ignore(relative_path)
+                    .expect("libgit2 should check the path");
+
+                assert_eq!(
+                    tinygit_ignore.is_ignored(relative_path, path.is_dir()),
+                    oracle_ignored,
+                    "ignored state of {} matches",
+                    relative_path.display()
+                );
+
+                // git doesn't look inside of ignored directories
+                if path.is_dir() && !oracle_ignored {
+                    dirs.push(path);
+                }
+            }
+        }
     }
 }
 
