@@ -1,7 +1,9 @@
 use std::{
+    ffi::OsStr,
     fs::{self, File},
     io::{ErrorKind, prelude::Write},
-    path::PathBuf,
+    os::unix::ffi::OsStrExt,
+    path::{Path, PathBuf},
 };
 
 use bitfield::bitfield;
@@ -100,6 +102,19 @@ impl Index {
     /// Iterates over the entries in this index, sorted by path name.
     pub fn entries(&self) -> impl Iterator<Item = &IndexEntry> {
         self.entries.iter()
+    }
+
+    /// Checks whether `path` is the path of an entry, or of a directory that contains one.
+    pub fn is_tracked(&self, path: &Path, is_dir: bool) -> bool {
+        self.entries.iter().any(|entry| {
+            let entry_path = Path::new(OsStr::from_bytes(&entry.path_name));
+
+            if is_dir {
+                entry_path.starts_with(path)
+            } else {
+                entry_path == path
+            }
+        })
     }
 
     /// Adds `entry` to the index, keeping the entries sorted by path name.
