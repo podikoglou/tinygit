@@ -47,6 +47,28 @@ fn stage_nested_directory_respects_its_gitignore() {
 }
 
 #[test]
+fn stage_non_canonical_path_respects_nested_gitignore() {
+    let (repo, dir) = include_repo!("fixtures/repos/repo-11.tar");
+    let path = dir.path().join("nested/..");
+
+    repo.stage(&path).expect("should stage directory");
+
+    let index = repo.store.index().expect("should read index");
+    let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
+
+    assert_eq!(
+        paths,
+        vec![
+            ".gitignore",
+            "important.log",
+            "nested/.gitignore",
+            "nested/sub/local_only",
+            "src/main.rs"
+        ]
+    );
+}
+
+#[test]
 fn stage_ignored_directory_does_not_apply_its_gitignore() {
     let (repo, dir) = include_repo!("fixtures/repos/repo-11.tar");
     let target = dir.path().join("target");
