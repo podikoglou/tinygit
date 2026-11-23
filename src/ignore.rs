@@ -42,37 +42,111 @@ impl IgnorePattern {
             return false;
         };
 
-        let target = if self.is_anchored {
-            target_path
-        } else {
-            target_path
-                .rsplit_str("/")
-                .next()
-                .unwrap_or(target_path)
-                .as_bstr()
-        };
-
-        if self.pattern == "*" || self.pattern == target {
-            return true;
+        if self.is_anchored {
+            return matches_path(&self.pattern, target_path);
         }
 
-        if let Some(suffix) = self.pattern.strip_prefix(b"*") {
-            return target.ends_with(suffix);
+        let name = target_path.rsplit_str("/").next().unwrap_or(target_path);
+
+        matches_glob(&self.pattern, name)
+    }
+}
+
+/// Matches a pattern against a path, where both start at the beginning of a path component.
+///
+/// This is the only place a `**` is special: followed by a `/` it stands for any number of
+/// directories, and at the end of the pattern it stands for everything inside a directory.
+/// Git reads more than two asterisks in a row the same way.
+fn matches_path(pattern: &[u8], path: &[u8]) -> bool {
+    let asterisks = pattern.iter().take_while(|byte| **byte == b'*').count();
+
+    match &pattern[asterisks..] {
+        [] if asterisks >= 2 => !path.is_empty(),
+
+        [b'/', rest @ ..] if asterisks >= 2 => {
+            let after_slashes = path.find_iter("/").map(|slash| slash + 1);
+
+            std::iter::once(0)
+                .chain(after_slashes)
+                .any(|start| matches_path(rest, &path[start..]))
         }
 
-        if let Some(prefix) = self.pattern.strip_suffix(b"*") {
-            return target.starts_with(prefix);
+        _ => matches_glob(pattern, path),
+    }
+}
+
+/// Matches a glob against a path.
+///
+/// `*` matches any run of bytes, `?` matches one byte, and `[...]` matches one byte out of
+/// a set. None of them match a `/`, so they never cross into another directory.
+fn matches_glob(pattern: &[u8], path: &[u8]) -> bool {
+    match pattern {
+        [] => path.is_empty(),
+
+        [b'/', rest @ ..] => path
+            .strip_prefix(b"/")
+            .is_some_and(|path| matches_path(rest, path)),
+
+        [b'*', rest @ ..] => {
+            let component_end = path.find_byte(b'/').unwrap_or(path.len());
+
+            (0..=component_end).any(|skipped| matches_glob(rest, &path[skipped..]))
         }
 
-        if let Some(pos) = self.pattern.find_byte(b'*') {
-            let (prefix, suffix) = self.pattern.split_at(pos);
-            let suffix = &suffix[1..];
-            return target.starts_with(prefix)
-                && target.ends_with(suffix)
-                && target.len() >= prefix.len() + suffix.len();
+        [b'?', rest @ ..] => match path {
+            [byte, path @ ..] => *byte != b'/' && matches_glob(rest, path),
+            [] => false,
+        },
+
+        [b'[', rest @ ..] => match path {
+            [byte, path @ ..] if *byte != b'/' => match bracket_contains(rest, *byte) {
+                Some((contains, rest)) => contains && matches_glob(rest, path),
+                // git matches nothing with a bracket that is never closed
+                None => false,
+            },
+            _ => false,
+        },
+
+        [byte, rest @ ..] => match path {
+            [first, path @ ..] => byte == first && matches_glob(rest, path),
+            [] => false,
+        },
+    }
+}
+
+/// Checks whether the bracket expression at the start of `pattern` contains `byte`.
+///
+/// `pattern` starts after the opening `[`. Returns the result along with the pattern that
+/// follows the closing `]`, or [`None`] if the bracket is never closed.
+fn bracket_contains(pattern: &[u8], byte: u8) -> Option<(bool, &[u8])> {
+    let (is_negated, mut rest) = match pattern {
+        [b'!' | b'^', rest @ ..] => (true, rest),
+        _ => (false, pattern),
+    };
+
+    let mut contains = false;
+    let mut is_first = true;
+
+    loop {
+        match rest {
+            [] => return None,
+
+            // a `]` right after the opening is a member of the set
+            [b']', after @ ..] if !is_first => return Some((contains != is_negated, after)),
+
+            // like git, the start of a range is in the set even if the range is empty
+            [low, b'-', high, after @ ..] if *high != b']' => {
+                contains |= *low == byte || (*low..=*high).contains(&byte);
+                rest = after;
+            }
+
+            [member, after @ ..] => {
+                contains |= *member == byte;
+                rest = after;
+            }
         }
 
-        false
+        is_first = false;
     }
 }
 
@@ -291,6 +365,71 @@ mod tests {
         assert!(ignore.is_ignored("nested/debug.log", false));
         assert!(!ignore.is_ignored("important.log", false));
         assert!(!ignore.is_ignored("debug.txt", false));
+    }
+
+    fn ignore_with(rules: &[u8]) -> Ignore {
+        let mut ignore = Ignore::new();
+        let loaded = Ignore::decode_bytes(rules).unwrap();
+        ignore.patterns.extend(loaded.patterns);
+
+        ignore
+    }
+
+    #[test]
+    fn asterisk_does_not_cross_directories() {
+        let ignore = ignore_with(b"src/*.log\n");
+
+        assert!(ignore.is_ignored("src/root.log", false));
+        assert!(!ignore.is_ignored("src/nested/inside.log", false));
+    }
+
+    #[test]
+    fn double_asterisk_matches_any_number_of_directories() {
+        let ignore = ignore_with(b"**/generated.txt\nlogs/**/debug.log\nbuild/**\n");
+
+        assert!(ignore.is_ignored("generated.txt", false));
+        assert!(ignore.is_ignored("nested/deep/generated.txt", false));
+
+        assert!(ignore.is_ignored("logs/debug.log", false));
+        assert!(ignore.is_ignored("logs/a/b/debug.log", false));
+        assert!(!ignore.is_ignored("other/debug.log", false));
+
+        assert!(ignore.is_ignored("build/out/main.o", false));
+        assert!(!ignore.is_ignored("build", true));
+    }
+
+    #[test]
+    fn question_mark_matches_one_byte() {
+        let ignore = ignore_with(b"local?.txt\n");
+
+        assert!(ignore.is_ignored("local1.txt", false));
+        assert!(ignore.is_ignored("nested/localx.txt", false));
+        assert!(!ignore.is_ignored("local.txt", false));
+        assert!(!ignore.is_ignored("local12.txt", false));
+    }
+
+    #[test]
+    fn brackets_match_one_byte_out_of_a_set() {
+        let ignore = ignore_with(b"build[0-9].log\nnote[!ab].txt\ntag[]x].txt\n");
+
+        assert!(ignore.is_ignored("build2.log", false));
+        assert!(!ignore.is_ignored("buildx.log", false));
+        assert!(!ignore.is_ignored("build.log", false));
+
+        assert!(ignore.is_ignored("notec.txt", false));
+        assert!(!ignore.is_ignored("notea.txt", false));
+
+        assert!(ignore.is_ignored("tag].txt", false));
+        assert!(ignore.is_ignored("tagx.txt", false));
+        assert!(!ignore.is_ignored("tagy.txt", false));
+    }
+
+    #[test]
+    fn unclosed_bracket_matches_nothing() {
+        let ignore = ignore_with(b"file[1.txt\n");
+
+        assert!(!ignore.is_ignored("file[1.txt", false));
+        assert!(!ignore.is_ignored("file1.txt", false));
     }
 
     #[test]

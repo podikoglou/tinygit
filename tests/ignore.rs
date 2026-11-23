@@ -3,6 +3,8 @@ mod common;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 
+use tinygit::Repo;
+
 #[test]
 fn stage_repo_root_respects_ignore_rules() {
     let (repo, dir) = include_repo!("fixtures/repos/repo-11.tar");
@@ -184,4 +186,37 @@ fn stage_does_not_add_ignored_file_that_replaced_a_tracked_directory() {
             "nested/sub/local_only"
         ]
     );
+}
+
+#[test]
+fn stage_matches_wildcards_like_git() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::new(dir.path()).expect("should be able to create repository");
+
+    fs::write(
+        dir.path().join(".gitignore"),
+        b"**/generated.txt\nlocal?.txt\nbuild[0-9].log\nsrc/*.log\n",
+    )
+    .unwrap();
+
+    fs::create_dir_all(dir.path().join("nested/deep")).unwrap();
+    fs::create_dir_all(dir.path().join("src/nested")).unwrap();
+
+    for path in [
+        "generated.txt",
+        "nested/deep/generated.txt",
+        "local1.txt",
+        "build2.log",
+        "src/root.log",
+        "src/nested/inside.log",
+    ] {
+        fs::write(dir.path().join(path), b"").unwrap();
+    }
+
+    repo.stage(dir.path()).expect("should stage repo root");
+
+    let index = repo.store.index().expect("should read index");
+    let paths: Vec<_> = index.entries().map(|e| e.path_name.to_string()).collect();
+
+    assert_eq!(paths, vec![".gitignore", "src/nested/inside.log"]);
 }
