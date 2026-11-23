@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, io::Write};
 
+use bstr::{BStr, ByteSlice};
 use sha1::digest::{array::Array, consts::U20};
 use winnow::{
     ModalResult, Parser,
@@ -41,8 +42,8 @@ impl TreeKey {
     }
 
     #[must_use]
-    pub fn as_str(&self) -> &str {
-        self.name.as_str()
+    pub fn as_bstr(&self) -> &BStr {
+        self.name.as_bstr()
     }
 
     /// The virtual trailing byte git uses when comparing this entry.
@@ -60,8 +61,8 @@ impl PartialOrd for TreeKey {
 
 impl Ord for TreeKey {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let a = self.name.as_str().as_bytes();
-        let b = other.name.as_str().as_bytes();
+        let a = self.name.as_bytes();
+        let b = other.name.as_bytes();
         let min_len = a.len().min(b.len());
 
         // Compare the common prefix first.
@@ -141,7 +142,9 @@ impl TreeEntry {
 
 impl Encode for (&TreeKey, &TreeEntry) {
     fn encode<W: Write>(&self, writer: &mut W) -> Result<(), crate::TinygitError> {
-        write!(writer, "{:o} {}\0", self.0.mode, self.0.name)?;
+        write!(writer, "{:o} ", self.0.mode)?;
+        self.0.name.encode(writer)?;
+        writer.write_all(b"\0")?;
 
         let hash_s = Into::<Array<u8, U20>>::into(self.1.object.clone());
         writer.write_all(hash_s.as_slice())?;

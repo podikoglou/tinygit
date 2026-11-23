@@ -7,7 +7,7 @@ use std::{
 
 use once_cell::sync::OnceCell;
 
-use bstr::BString;
+use bstr::{BString, ByteSlice};
 
 use crate::{
     TinygitError,
@@ -215,19 +215,16 @@ impl Store {
     /// Equivalent to `git write-tree`.
     pub fn write_tree(&self) -> Result<ObjectHash, TinygitError> {
         // directory -> entries of its tree. the root is the empty path
-        let mut trees: BTreeMap<String, BTreeMap<TreeKey, TreeEntry>> = BTreeMap::new();
+        let mut trees: BTreeMap<BString, BTreeMap<TreeKey, TreeEntry>> = BTreeMap::new();
 
         for entry in self.index()?.entries() {
-            let path = entry.path_name.to_string();
-            let (dir, name) = path.rsplit_once('/').unwrap_or(("", &path));
+            let path = entry.path_name.as_bytes();
+            let (dir, name) = path.rsplit_once_str("/").unwrap_or((b"", path));
 
-            let key = TreeKey::new(
-                FileName::try_new(name.to_string())?,
-                entry.mode.raw() as u16,
-            );
+            let key = TreeKey::new(FileName::try_new(name.into())?, entry.mode.raw() as u16);
 
             trees
-                .entry(dir.to_string())
+                .entry(dir.into())
                 .or_default()
                 .insert(key, TreeEntry::new(entry.hash.clone()));
         }
@@ -240,11 +237,11 @@ impl Store {
                 return Ok(hash);
             }
 
-            let (parent, name) = dir.rsplit_once('/').unwrap_or(("", &dir));
-            let key = TreeKey::new(FileName::try_new(name.to_string())?, 0o40000);
+            let (parent, name) = dir.rsplit_once_str("/").unwrap_or((b"", &dir));
+            let key = TreeKey::new(FileName::try_new(name.into())?, 0o40000);
 
             trees
-                .entry(parent.to_string())
+                .entry(parent.into())
                 .or_default()
                 .insert(key, TreeEntry::new(hash));
         }

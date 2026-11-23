@@ -235,8 +235,8 @@ fn trees_match() {
             for (oracle_entry, tinygit_entry) in oracle_tree.iter().zip(tinygit_tree.entries.iter())
             {
                 assert_eq!(
-                    tinygit_entry.0.as_str(),
-                    oracle_entry.name().unwrap(),
+                    tinygit_entry.0.as_bstr(),
+                    oracle_entry.name_bytes(),
                     "file names match"
                 );
 

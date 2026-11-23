@@ -458,7 +458,7 @@ mod generators {
     }
 
     fn file_name() -> impl ValueGenerator<Output = FileName> {
-        produce::<String>().filter_map_gen(|s| FileName::try_new(s).ok())
+        produce::<Vec<u8>>().filter_map_gen(|bytes| FileName::try_new(bytes.into()).ok())
     }
 
     fn name() -> impl ValueGenerator<Output = Name> {
